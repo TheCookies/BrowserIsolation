@@ -1,23 +1,18 @@
-# Podman Quadlet units
+# Podman deploy
 
-Copy these files onto a Linux host that runs **rootful Podman**. Full walkthrough: [docs/PODMAN.md](../../docs/PODMAN.md).
+**Simple path (recommended):** extract and run the installer from the published image — see [docs/SETUP_GHCR_ALMA.md](../../docs/SETUP_GHCR_ALMA.md).
+
+```bash
+sudo podman login ghcr.io -u YOUR_GITHUB_USERNAME
+sudo podman pull ghcr.io/thecookies/browserisolation:latest
+sudo podman run --rm --entrypoint cat \
+  ghcr.io/thecookies/browserisolation:latest \
+  /deploy/install.sh | sudo bash
+```
 
 | File | Purpose |
 | --- | --- |
-| `browser-isolation.container` | Single-node orchestrator (`LOCAL_WORKER_ENABLED=true`) |
-| `browser-isolation-worker.container` | Extra browser host only (no portal) |
-| `rbi-browsers.network` | Shared Podman network for Neko containers |
-| `rbi-data.volume` | Persistent SQLite volume (orchestrator host) |
-
-```bash
-sudo mkdir -p /etc/containers/systemd /etc/browser-isolation
-sudo cp deploy/podman/*.container deploy/podman/*.network deploy/podman/*.volume \
-  /etc/containers/systemd/
-# Only install the worker unit on extra browser hosts — not both units on one host
-# unless you intentionally run a second agent locally.
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now browser-isolation.service   # or browser-isolation-worker.service
-```
-
-Quadlet turns `browser-isolation.container` into `browser-isolation.service`.
+| `install.sh` | One-shot host installer (also baked into the image at `/deploy/install.sh`) |
+| `browser-isolation.container` | Orchestrator Quadlet (written by installer) |
+| `browser-isolation-worker.container` | Extra browser-host Quadlet |
+| `rbi-browsers.network` / `rbi-data.volume` | Network + data volume |

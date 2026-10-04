@@ -22,6 +22,8 @@ COPY --from=build /src/orchestrator/package.json /app/orchestrator/package.json
 COPY --from=build /src/orchestrator/dist /app/orchestrator/dist
 COPY --from=build /src/orchestrator/neko-policies /app/orchestrator/neko-policies
 COPY --from=build /src/web/dist /app/web/dist
+# Host installer (extract with: podman run --rm --entrypoint cat IMAGE /deploy/install.sh)
+COPY deploy/podman /deploy
 WORKDIR /app/orchestrator
 EXPOSE 8080 8090
 # Default: portal/orchestrator. Worker hosts override with dist/worker-main.js.
