@@ -1,5 +1,7 @@
 # Podman + GitHub Container Registry (GHCR)
 
+**Want exact click-by-click steps for Alma Linux?** Start here: **[SETUP_GHCR_ALMA.md](SETUP_GHCR_ALMA.md)**.
+
 Run Browser Isolation with **Podman** instead of Docker, publish the app image from GitHub Actions to a **private** GHCR package, and auto-pull `:latest` on a remote host at boot.
 
 Your private GitHub **code** repo is not a container registry. Pulls use:

@@ -45,6 +45,12 @@ const PAGES = [
     blurb: "TLS, firewall, production ops",
   },
   {
+    id: "setup-ghcr-alma",
+    title: "Setup: GHCR + Alma",
+    file: "docs/SETUP_GHCR_ALMA.md",
+    blurb: "Step-by-step publish and Alma Linux install",
+  },
+  {
     id: "podman",
     title: "Podman + GHCR",
     file: "docs/PODMAN.md",

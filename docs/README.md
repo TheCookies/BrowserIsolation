@@ -21,7 +21,8 @@ Rebuild after editing markdown: `npm run docs`
 
 | Doc | When you need it |
 | --- | --- |
-| [PODMAN.md](PODMAN.md) | GHCR publish, Podman Quadlet, remote auto-pull `:latest` |
+| [SETUP_GHCR_ALMA.md](SETUP_GHCR_ALMA.md) | **Start here:** publish image + Alma Linux pull/auto-start |
+| [PODMAN.md](PODMAN.md) | GHCR / Podman background and reference |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Production install, TLS, firewall, TURN |
 | [WORKERS.md](WORKERS.md) | Scaling browsers across hosts |
 | [USER_IDENTITY.md](USER_IDENTITY.md) | Profiles, `subjectId`, SAML |

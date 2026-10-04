@@ -46,7 +46,7 @@ Full markdown index: **[docs/README.md](docs/README.md)**. Regenerate the HTML s
 - Or **Node.js 22+** for local development and unit tests  
 - Container engine socket access for the orchestrator (Compose mounts the Podman/Docker API socket)
 
-Production remote hosts: publish via GHCR and auto-start with Quadlet — see **[docs/PODMAN.md](docs/PODMAN.md)**.
+Production remote hosts (Alma Linux step-by-step): **[docs/SETUP_GHCR_ALMA.md](docs/SETUP_GHCR_ALMA.md)**.
 
 ---
 

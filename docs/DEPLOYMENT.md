@@ -2,7 +2,10 @@
 
 How to run Browser Isolation in production (or anything beyond a laptop).
 
-**Production recommendation:** Podman + GHCR image + systemd Quadlet (pull `:latest` on boot). Beginner walkthrough: **[PODMAN.md](PODMAN.md)**.
+**Production recommendation:** Podman + GHCR image + systemd Quadlet (pull `:latest` on boot).
+
+- Exact Alma Linux checklist: **[SETUP_GHCR_ALMA.md](SETUP_GHCR_ALMA.md)**
+- Background / reference: **[PODMAN.md](PODMAN.md)**
 
 ## Recommended topology
 
