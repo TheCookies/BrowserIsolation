@@ -2,23 +2,33 @@
 
 How to run Browser Isolation in production (or anything beyond a laptop).
 
+**Production recommendation:** Podman + GHCR image + systemd Quadlet (pull `:latest` on boot). Beginner walkthrough: **[PODMAN.md](PODMAN.md)**.
+
 ## Recommended topology
 
 **Single host (default)**
 
-- One Compose stack: `orchestrator` service  
-- `LOCAL_WORKER_ENABLED=true`  
-- Docker socket mounted; WebRTC ports published on the host (or DNAT)  
+- One orchestrator service (`LOCAL_WORKER_ENABLED=true`)  
+- Container engine socket mounted (Podman or Docker); WebRTC ports published on the host (or DNAT)  
 - Optional reverse proxy for TLS on `443`
 
 **Split control / data plane**
 
 - Portal host: orchestrator only (`LOCAL_WORKER_ENABLED=false`)  
-- One or more browser hosts: `docker compose --profile worker`  
+- One or more browser hosts: worker profile / worker Quadlet  
 - Clients → portal (HTTPS); clients → each worker `PUBLIC_IP` for WebRTC  
 - Orchestrator → worker agents on a private network  
 
 See [WORKERS.md](WORKERS.md).
+
+---
+
+## Podman + GHCR (recommended)
+
+1. Push to `main` so Actions publishes `ghcr.io/thecookies/browserisolation:latest`.  
+2. On the host: enable `podman.socket`, `podman login ghcr.io`, install units from [`deploy/podman/`](../deploy/podman/).  
+
+Full steps (token, Quadlet, extra workers): [PODMAN.md](PODMAN.md).
 
 ---
 
@@ -28,14 +38,16 @@ See [WORKERS.md](WORKERS.md).
 cp .env.example .env
 # Edit: PUBLIC_IP, COOKIE_SECURE, TRUST_PROXY, AUTH_USERS (first boot only), etc.
 
-docker compose --profile prepull pull
-docker compose up -d --build
+# Podman (default): API socket at /run/podman/podman.sock
+podman compose up -d --build
+
+# Docker Engine:
+# CONTAINER_SOCKET=/var/run/docker.sock docker compose up -d --build
 ```
 
 Healthcheck hits `GET /api/health` inside the container.
 
-Data persists on Docker volume `rbi-data` → `/data/rbi.sqlite`.
-
+Data persists on volume `rbi-data` → `/data/rbi.sqlite`.
 ---
 
 ## Firewall / security groups
@@ -162,10 +174,18 @@ Details: [USER_IDENTITY.md](USER_IDENTITY.md).
 
 ## Upgrades
 
+**Quadlet / GHCR host**
+
+```bash
+sudo systemctl restart browser-isolation.service   # Pull=always fetches :latest
+```
+
+**Compose from a git checkout**
+
 ```bash
 git pull
-docker compose --profile prepull pull
-docker compose up -d --build
+podman compose pull
+podman compose up -d --build
 ```
 
 On start the orchestrator:

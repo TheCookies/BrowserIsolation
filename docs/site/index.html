@@ -523,6 +523,11 @@ body {
         <span class="nav-item-blurb">TLS, firewall, production ops</span>
       </button>
 
+      <button type="button" class="nav-item" data-nav="podman" aria-current="false">
+        <span class="nav-item-title">Podman + GHCR</span>
+        <span class="nav-item-blurb">Publish image and remote auto-pull</span>
+      </button>
+
       <button type="button" class="nav-item" data-nav="workers" aria-current="false">
         <span class="nav-item-title">Workers</span>
         <span class="nav-item-blurb">Multi-host browser placement</span>
@@ -578,7 +583,7 @@ body {
         </header>
         <div class="doc-body">
           <h1 id="browser-isolation">Browser Isolation</h1>
-<p>Self-hosted <strong>remote browser isolation (RBI)</strong>. Users sign in to a portal, launch an isolated browser in Docker, and interact with it through a custom WebRTC viewer in their own browser. Malicious pages stay inside the container; the user’s machine only sees a stream.</p>
+<p>Self-hosted <strong>remote browser isolation (RBI)</strong>. Users sign in to a portal, launch an isolated browser in a container (Podman or Docker), and interact with it through a custom WebRTC viewer in their own browser. Malicious pages stay inside the container; the user’s machine only sees a stream.</p>
 <p>This repo is an npm workspaces monorepo:</p>
 <div class="table-wrap"><table><thead><tr><th>Package</th><th>Path</th><th>Role</th></tr></thead><tbody><tr><td><strong>orchestrator</strong></td><td><a href="orchestrator/"><code>orchestrator/</code></a></td><td>Fastify API, auth, SQLite, Docker lifecycle, session proxy, optional worker agent</td></tr>
 <tr><td><strong>web</strong></td><td><a href="web/"><code>web/</code></a></td><td>React SPA (dashboard, viewer, admin)</td></tr></tbody></table></div>
@@ -591,6 +596,7 @@ body {
 <li><strong><a href="#development" data-nav="development">docs/DEVELOPMENT.md</a></strong> — local loop, tests, where to change code  </li>
 <li><strong><a href="#api" data-nav="api">docs/API.md</a></strong> — HTTP/WebSocket surface  </li>
 <li><strong><a href="#deployment" data-nav="deployment">docs/DEPLOYMENT.md</a></strong> — production, TLS, firewall, multi-host  </li>
+<li><strong><a href="#podman" data-nav="podman">docs/PODMAN.md</a></strong> — GHCR publish + Podman remote auto-deploy  </li>
 <li><strong><a href="#plan" data-nav="plan">docs/PLAN.md</a></strong> — what is built and what is next  </li></ol>
 <p>Full markdown index: <strong><a href="#home" data-nav="home">docs/README.md</a></strong>. Regenerate the HTML site after doc edits with <code>npm run docs</code>.</p>
 <hr />
@@ -604,17 +610,18 @@ body {
 <li>Optional <strong>persistent profiles</strong> keyed by stable <code>subjectId</code> (SAML-ready) — see <a href="#identity" data-nav="identity">docs/USER_IDENTITY.md</a></li></ul>
 <hr />
 <h2 id="prerequisites">Prerequisites</h2>
-<ul><li><strong>Docker</strong> and <strong>Docker Compose v2</strong> (recommended for the full stack)  </li>
+<ul><li><strong>Podman</strong> (recommended) with Compose, or <strong>Docker</strong> + Compose v2  </li>
 <li>Or <strong>Node.js 22+</strong> for local development and unit tests  </li>
-<li>Docker socket access for the orchestrator (Compose mounts <code>/var/run/docker.sock</code>)</li></ul>
+<li>Container engine socket access for the orchestrator (Compose mounts the Podman/Docker API socket)</li></ul>
+<p>Production remote hosts: publish via GHCR and auto-start with Quadlet — see <strong><a href="#podman" data-nav="podman">docs/PODMAN.md</a></strong>.</p>
 <hr />
 <h2 id="quick-start">Quick start</h2>
 <pre class="code-block" data-lang="bash"><code>cp .env.example .env
 # Set PUBLIC_IP to this host's LAN or public address before launching browsers
 # from other machines. Use 127.0.0.1 only for same-host testing.
 
-docker compose --profile prepull pull   # optional but avoids first-launch waits
-docker compose up --build</code></pre>
+podman compose up --build
+# Docker Engine: CONTAINER_SOCKET=/var/run/docker.sock docker compose up --build</code></pre>
 <p>Open <strong>http://localhost:8080</strong>.</p>
 <div class="table-wrap"><table><thead><tr><th>Username</th><th>Password</th><th>Role</th></tr></thead><tbody><tr><td><code>admin</code></td><td><code>admin</code></td><td>admin</td></tr>
 <tr><td><code>user</code></td><td><code>user</code></td><td>user</td></tr></tbody></table></div>
@@ -625,7 +632,7 @@ docker compose up --build</code></pre>
 <pre class="code-block" data-lang="bash"><code>npm install
 npm test
 npm run dev</code></pre>
-<div class="table-wrap"><table><thead><tr><th>Process</th><th>Port</th><th>Notes</th></tr></thead><tbody><tr><td>API (<code>orchestrator</code>)</td><td><code>8080</code></td><td>Needs Docker for real launches</td></tr>
+<div class="table-wrap"><table><thead><tr><th>Process</th><th>Port</th><th>Notes</th></tr></thead><tbody><tr><td>API (<code>orchestrator</code>)</td><td><code>8080</code></td><td>Needs Podman/Docker for real launches</td></tr>
 <tr><td>Vite UI (<code>web</code>)</td><td><code>5173</code></td><td>Proxies <code>/api</code> and <code>/session/*/view</code> → API</td></tr></tbody></table></div>
 <p>Production-style single process (API serves built UI):</p>
 <pre class="code-block" data-lang="bash"><code>npm run build
@@ -640,6 +647,7 @@ NODE_ENV=production npm start</code></pre>
 │   └── neko-policies/     # Managed browser policies injected into Neko
 ├── web/                   # React + Vite SPA + WebRTC viewer
 ├── docs/                  # Architecture, API, deploy, plans
+├── deploy/podman/         # Quadlet units for remote auto-start
 ├── data/                  # Local SQLite (gitignored)
 ├── docker-compose.yml
 ├── Dockerfile
@@ -656,10 +664,10 @@ NODE_ENV=production npm start</code></pre>
 <p>See <a href="#deployment" data-nav="deployment">docs/DEPLOYMENT.md</a> for firewall ports, TLS, TURN, and multi-host.</p>
 <hr />
 <h2 id="multi-host-workers">Multi-host workers</h2>
-<p>One portal schedules Neko containers onto local Docker and/or remote <strong>worker agents</strong>. Signaling stays on the portal; WebRTC media goes to the worker’s <code>PUBLIC_IP</code>.</p>
-<p>Guide: <strong><a href="#workers" data-nav="workers">docs/WORKERS.md</a></strong>.</p>
+<p>One portal schedules Neko containers onto the local engine and/or remote <strong>worker agents</strong>. Signaling stays on the portal; WebRTC media goes to the worker’s <code>PUBLIC_IP</code>.</p>
+<p>Guide: <strong><a href="#workers" data-nav="workers">docs/WORKERS.md</a></strong>. Podman remote units: <strong><a href="#podman" data-nav="podman">docs/PODMAN.md</a></strong>.</p>
 <pre class="code-block" data-lang="bash"><code># On a browser host (after setting WORKER_ID, WORKER_TOKEN, PUBLIC_IP):
-docker compose --profile worker up -d --build worker</code></pre>
+podman compose --profile worker up -d worker</code></pre>
 <hr />
 <h2 id="docs-map">Docs map</h2>
 <div class="table-wrap"><table><thead><tr><th>Doc</th><th>Contents</th></tr></thead><tbody><tr><td><a href="docs/site/index.html">docs/site/index.html</a></td><td>Pretty HTML docs (run <code>npm run docs:serve</code>)</td></tr>
@@ -668,6 +676,7 @@ docker compose --profile worker up -d --build worker</code></pre>
 <tr><td><a href="#development" data-nav="development">docs/DEVELOPMENT.md</a></td><td>Dev setup, tests, coding map</td></tr>
 <tr><td><a href="#api" data-nav="api">docs/API.md</a></td><td>Portal + worker HTTP APIs</td></tr>
 <tr><td><a href="#deployment" data-nav="deployment">docs/DEPLOYMENT.md</a></td><td>Compose, TLS, firewall, ops</td></tr>
+<tr><td><a href="#podman" data-nav="podman">docs/PODMAN.md</a></td><td>GHCR + Podman Quadlet remote deploy</td></tr>
 <tr><td><a href="#workers" data-nav="workers">docs/WORKERS.md</a></td><td>Multi-host placement</td></tr>
 <tr><td><a href="#identity" data-nav="identity">docs/USER_IDENTITY.md</a></td><td><code>subjectId</code>, profiles, SAML</td></tr>
 <tr><td><a href="#security" data-nav="security">docs/SECURITY.md</a></td><td>Threat model and hardening</td></tr>
@@ -1073,27 +1082,35 @@ docker compose up --build</code></pre>
         <div class="doc-body">
           <h1 id="deployment">Deployment</h1>
 <p>How to run Browser Isolation in production (or anything beyond a laptop).</p>
+<p><strong>Production recommendation:</strong> Podman + GHCR image + systemd Quadlet (pull <code>:latest</code> on boot). Beginner walkthrough: <strong><a href="#podman" data-nav="podman">PODMAN.md</a></strong>.</p>
 <h2 id="recommended-topology">Recommended topology</h2>
 <p><strong>Single host (default)</strong></p>
-<ul><li>One Compose stack: <code>orchestrator</code> service  </li>
-<li><code>LOCAL_WORKER_ENABLED=true</code>  </li>
-<li>Docker socket mounted; WebRTC ports published on the host (or DNAT)  </li>
+<ul><li>One orchestrator service (<code>LOCAL_WORKER_ENABLED=true</code>)  </li>
+<li>Container engine socket mounted (Podman or Docker); WebRTC ports published on the host (or DNAT)  </li>
 <li>Optional reverse proxy for TLS on <code>443</code></li></ul>
 <p><strong>Split control / data plane</strong></p>
 <ul><li>Portal host: orchestrator only (<code>LOCAL_WORKER_ENABLED=false</code>)  </li>
-<li>One or more browser hosts: <code>docker compose --profile worker</code>  </li>
+<li>One or more browser hosts: worker profile / worker Quadlet  </li>
 <li>Clients → portal (HTTPS); clients → each worker <code>PUBLIC_IP</code> for WebRTC  </li>
 <li>Orchestrator → worker agents on a private network  </li></ul>
 <p>See <a href="#workers" data-nav="workers">WORKERS.md</a>.</p>
+<hr />
+<h2 id="podman-ghcr-recommended">Podman + GHCR (recommended)</h2>
+<ol><li>Push to <code>main</code> so Actions publishes <code>ghcr.io/thecookies/browserisolation:latest</code>.  </li>
+<li>On the host: enable <code>podman.socket</code>, <code>podman login ghcr.io</code>, install units from <a href="../deploy/podman/"><code>deploy/podman/</code></a>.  </li></ol>
+<p>Full steps (token, Quadlet, extra workers): <a href="#podman" data-nav="podman">PODMAN.md</a>.</p>
 <hr />
 <h2 id="compose-quick-deploy">Compose quick deploy</h2>
 <pre class="code-block" data-lang="bash"><code>cp .env.example .env
 # Edit: PUBLIC_IP, COOKIE_SECURE, TRUST_PROXY, AUTH_USERS (first boot only), etc.
 
-docker compose --profile prepull pull
-docker compose up -d --build</code></pre>
+# Podman (default): API socket at /run/podman/podman.sock
+podman compose up -d --build
+
+# Docker Engine:
+# CONTAINER_SOCKET=/var/run/docker.sock docker compose up -d --build</code></pre>
 <p>Healthcheck hits <code>GET /api/health</code> inside the container.</p>
-<p>Data persists on Docker volume <code>rbi-data</code> → <code>/data/rbi.sqlite</code>.</p>
+<p>Data persists on volume <code>rbi-data</code> → <code>/data/rbi.sqlite</code>.</p>
 <hr />
 <h2 id="firewall-security-groups">Firewall / security groups</h2>
 <div class="table-wrap"><table><thead><tr><th>Port</th><th>Protocol</th><th>Who needs it</th><th>Purpose</th></tr></thead><tbody><tr><td><code>PORT</code> (8080) or <code>80</code>/<code>443</code> on proxy</td><td>TCP</td><td>Clients</td><td>Portal UI, API, signaling proxy</td></tr>
@@ -1174,9 +1191,12 @@ server {
 <p>Details: <a href="#identity" data-nav="identity">USER_IDENTITY.md</a>.</p>
 <hr />
 <h2 id="upgrades">Upgrades</h2>
+<p><strong>Quadlet / GHCR host</strong></p>
+<pre class="code-block" data-lang="bash"><code>sudo systemctl restart browser-isolation.service   # Pull=always fetches :latest</code></pre>
+<p><strong>Compose from a git checkout</strong></p>
 <pre class="code-block" data-lang="bash"><code>git pull
-docker compose --profile prepull pull
-docker compose up -d --build</code></pre>
+podman compose pull
+podman compose up -d --build</code></pre>
 <p>On start the orchestrator:</p>
 <ol><li>Applies SQLite migrations in <code>db.ts</code>  </li>
 <li>Hydrates settings from <code>app_settings</code>  </li>
@@ -1202,6 +1222,149 @@ docker compose up -d --build</code></pre>
         </div>
       </article>
 
+      <article class="doc-page" id="page-podman" data-page="podman" hidden>
+        <header class="doc-page-header">
+          <p class="doc-kicker">docs/PODMAN.md</p>
+          <h1 class="doc-page-title">Podman + GHCR</h1>
+          <p class="doc-page-blurb">Publish image and remote auto-pull</p>
+        </header>
+        <div class="doc-body">
+          <h1 id="podman-github-container-registry-ghcr">Podman + GitHub Container Registry (GHCR)</h1>
+<p>Run Browser Isolation with <strong>Podman</strong> instead of Docker, publish the app image from GitHub Actions to a <strong>private</strong> GHCR package, and auto-pull <code>:latest</code> on a remote host at boot.</p>
+<p>Your private GitHub <strong>code</strong> repo is not a container registry. Pulls use:</p>
+<pre class="code-block" data-lang="text"><code>ghcr.io/thecookies/browserisolation:latest</code></pre>
+<p>The orchestrator still talks to a Docker-compatible API (dockerode). On Podman that is the <strong>rootful</strong> <code>podman.socket</code>, mounted into the container as <code>/var/run/docker.sock</code>.</p>
+<hr />
+<h2 id="what-you-will-end-up-with">What you will end up with</h2>
+<div class="table-wrap"><table><thead><tr><th>Piece</th><th>Role</th></tr></thead><tbody><tr><td>GitHub Actions workflow</td><td>Builds <a href="../Dockerfile"><code>Dockerfile</code></a> on every push to <code>main</code> and pushes <code>:latest</code> + short SHA tags</td></tr>
+<tr><td>GHCR package</td><td>Private image store for the remote host</td></tr>
+<tr><td>Remote host Quadlet unit</td><td>On boot: pull <code>:latest</code>, start orchestrator (local worker enabled)</td></tr>
+<tr><td>Extra hosts (later)</td><td>Same image, <strong>worker</strong> Quadlet only — no orchestrator</td></tr></tbody></table></div>
+<hr />
+<h2 id="part-a-publish-the-image-to-ghcr-first-time">Part A — Publish the image to GHCR (first time)</h2>
+<h3 id="1-push-the-workflow">1. Push the workflow</h3>
+<p>The workflow lives at <a href="../.github/workflows/publish-image.yml"><code>.github/workflows/publish-image.yml</code></a>. Merge it to <code>main</code> (or push <code>main</code> if you are already on it).</p>
+<p>It uses the built-in <code>GITHUB_TOKEN</code> with <code>packages: write</code>. You do <strong>not</strong> need to create a secret just to publish from this repo.</p>
+<h3 id="2-watch-the-action">2. Watch the Action</h3>
+<ol><li>Open the repo on GitHub → <strong>Actions</strong>.</li>
+<li>Select <strong>Publish image</strong>.</li>
+<li>Open the latest run and wait until it is green.</li></ol>
+<p>If it fails on permissions, check <strong>Settings → Actions → General → Workflow permissions</strong> and allow read/write for <code>GITHUB_TOKEN</code> (or keep the workflow’s explicit <code>packages: write</code>).</p>
+<h3 id="3-find-the-package">3. Find the package</h3>
+<ol><li>Open the repo → right sidebar <strong>Packages</strong>, or your org/user → <strong>Packages</strong>.</li>
+<li>Open <strong>browserisolation</strong> (name may appear as <code>browserisolation</code>).</li>
+<li>Confirm the image URI is <code>ghcr.io/thecookies/browserisolation</code>.</li>
+<li>Under package settings, keep visibility <strong>Private</strong> (default for private repos).</li></ol>
+<p>Optional but useful: under package <strong>Package settings → Manage Actions access</strong>, ensure this repository has a role that can write (the publishing workflow needs that once; pull from a remote uses a PAT — next step).</p>
+<h3 id="4-create-a-pull-token-for-the-remote-host">4. Create a pull token for the remote host</h3>
+<p>The remote machine is not GitHub Actions, so it needs credentials to pull a private package.</p>
+<ol><li>GitHub → profile → <strong>Settings → Developer settings → Personal access tokens</strong>.</li>
+<li>Create a <strong>classic</strong> token with at least:</li></ol>
+<p>- <code>read:packages</code></p>
+<ol><li>Copy the token once. Store it only on the remote host (or a secret manager). Do not commit it.</li></ol>
+<p>Fine-grained tokens can work if granted <strong>read</strong> access to the package (and the repo if your org requires it). Classic <code>read:packages</code> is the simplest first path.</p>
+<hr />
+<h2 id="part-b-remote-host-orchestrator-local-worker">Part B — Remote host (orchestrator + local worker)</h2>
+<p>Assumes a Linux host with systemd (Fedora, RHEL, Debian/Ubuntu with Podman 4+). Use <strong>rootful</strong> Podman so published WebRTC ports and nested Neko containers behave predictably.</p>
+<h3 id="1-install-podman-and-enable-the-api-socket">1. Install Podman and enable the API socket</h3>
+<pre class="code-block" data-lang="bash"><code># Example: Debian/Ubuntu
+sudo apt update
+sudo apt install -y podman
+
+# Example: Fedora/RHEL
+# sudo dnf install -y podman
+
+sudo systemctl enable --now podman.socket
+sudo ls -l /run/podman/podman.sock</code></pre>
+<h3 id="2-log-in-to-ghcr">2. Log in to GHCR</h3>
+<pre class="code-block" data-lang="bash"><code>export GHCR_TOKEN='paste-your-read-packages-token-here'
+echo &quot;$GHCR_TOKEN&quot; | sudo podman login ghcr.io -u TheCookies --password-stdin
+unset GHCR_TOKEN</code></pre>
+<p>Use your GitHub username (or a machine user) as <code>-u</code>. The token is the password.</p>
+<p>Test:</p>
+<pre class="code-block" data-lang="bash"><code>sudo podman pull ghcr.io/thecookies/browserisolation:latest</code></pre>
+<h3 id="3-create-the-env-file">3. Create the env file</h3>
+<pre class="code-block" data-lang="bash"><code>sudo mkdir -p /etc/browser-isolation
+# From a checkout of this repo, or paste .env.example contents:
+sudo cp .env.example /etc/browser-isolation/browser-isolation.env
+sudo chmod 600 /etc/browser-isolation/browser-isolation.env
+sudo nano /etc/browser-isolation/browser-isolation.env</code></pre>
+<p>Minimum edits before browsers will work for remote clients:</p>
+<div class="table-wrap"><table><thead><tr><th>Variable</th><th>Set to</th></tr></thead><tbody><tr><td><code>PUBLIC_IP</code></td><td>This host’s client-reachable IP</td></tr>
+<tr><td><code>AUTH_USERS</code></td><td>Change default passwords (first boot only)</td></tr>
+<tr><td><code>COOKIE_SECURE</code> / <code>TRUST_PROXY</code></td><td><code>true</code> behind HTTPS</td></tr>
+<tr><td><code>LOCAL_WORKER_ENABLED</code></td><td><code>true</code> (default)</td></tr></tbody></table></div>
+<p>Keep <code>DOCKER_SOCKET=/var/run/docker.sock</code> — the Quadlet mounts the Podman socket at that path inside the container.</p>
+<h3 id="4-install-quadlet-units">4. Install Quadlet units</h3>
+<p>From a clone of this repo on the host (or copy the files another way):</p>
+<pre class="code-block" data-lang="bash"><code>sudo mkdir -p /etc/containers/systemd
+sudo cp deploy/podman/browser-isolation.container \
+        deploy/podman/rbi-browsers.network \
+        deploy/podman/rbi-data.volume \
+        /etc/containers/systemd/
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now browser-isolation.service</code></pre>
+<p>Quadlet generates <code>browser-isolation.service</code> from <code>browser-isolation.container</code>.</p>
+<p><code>Pull=always</code> means every unit start (including reboot) pulls <code>:latest</code> before running.</p>
+<h3 id="5-verify">5. Verify</h3>
+<pre class="code-block" data-lang="bash"><code>sudo systemctl status browser-isolation.service
+sudo podman ps
+curl -sS http://127.0.0.1:8080/api/health</code></pre>
+<p>Open <code>http://&lt;PUBLIC_IP&gt;:8080</code> (or your reverse proxy URL). See <a href="#deployment" data-nav="deployment">DEPLOYMENT.md</a> for TLS and firewall ports (<code>8080</code> / <code>443</code>, plus <code>WEBRTC_PORT_RANGE</code> UDP+TCP).</p>
+<h3 id="6-after-you-push-a-new-image">6. After you push a new image</h3>
+<p>Reboot the host, or:</p>
+<pre class="code-block" data-lang="bash"><code>sudo systemctl restart browser-isolation.service</code></pre>
+<p>That pulls a newer <code>:latest</code> and recreates the container. SQLite stays on the <code>rbi-data</code> volume.</p>
+<hr />
+<h2 id="part-c-extra-worker-hosts-later">Part C — Extra worker hosts (later)</h2>
+<p>Do <strong>not</strong> install <code>browser-isolation.container</code> on these machines.</p>
+<ol><li>Same Podman + <code>podman.socket</code> + <code>podman login ghcr.io</code> steps as Part B.</li>
+<li>Env file with at least:</li></ol>
+<pre class="code-block" data-lang="bash"><code>WORKER_ID=edge1
+WORKER_TOKEN=long-random-secret
+WORKER_PORT=8090
+PUBLIC_IP=10.0.0.5
+WEBRTC_PORT_RANGE=52000-52099
+DOCKER_SOCKET=/var/run/docker.sock</code></pre>
+<ol><li>Install the worker unit + network (no data volume required):</li></ol>
+<pre class="code-block" data-lang="bash"><code>sudo cp deploy/podman/browser-isolation-worker.container \
+        deploy/podman/rbi-browsers.network \
+        /etc/containers/systemd/
+sudo systemctl daemon-reload
+sudo systemctl enable --now browser-isolation-worker.service</code></pre>
+<ol><li>Register the worker on the portal: <strong>Admin → Workers</strong>, or set <code>WORKERS=</code> on the orchestrator host. Details: <a href="#workers" data-nav="workers">WORKERS.md</a>.</li></ol>
+<hr />
+<h2 id="compose-alternative-laptop-quick-test">Compose alternative (laptop / quick test)</h2>
+<p>Quadlet is the recommended production path. For a quick stack from a git checkout:</p>
+<pre class="code-block" data-lang="bash"><code>cp .env.example .env
+# edit PUBLIC_IP, etc.
+
+# Podman (default socket path in compose)
+podman compose up -d --build
+
+# Docker Engine instead of Podman:
+# CONTAINER_SOCKET=/var/run/docker.sock docker compose up -d --build</code></pre>
+<p><a href="../docker-compose.yml"><code>docker-compose.yml</code></a> defaults <code>CONTAINER_SOCKET</code> to <code>/run/podman/podman.sock</code> and still supports <code>build:</code> for local images.</p>
+<p>Worker-only:</p>
+<pre class="code-block" data-lang="bash"><code>podman compose --profile worker up -d worker</code></pre>
+<hr />
+<h2 id="troubleshooting">Troubleshooting</h2>
+<div class="table-wrap"><table><thead><tr><th>Symptom</th><th>Likely fix</th></tr></thead><tbody><tr><td><code>denied</code> / <code>unauthorized</code> on pull</td><td><code>podman login ghcr.io</code> with a token that has <code>read:packages</code>; use <code>sudo</code> if the service runs rootful</td></tr>
+<tr><td>Package not found after first Action</td><td>Wait for a green <strong>Publish image</strong> run; check org package visibility</td></tr>
+<tr><td>Orchestrator up but cannot create browsers</td><td><code>podman.socket</code> not running; socket not mounted; SELinux denying socket (<code>sudo setsebool -P container_manage_cgroup on</code> on some RHEL setups)</td></tr>
+<tr><td>WebRTC fails remotely</td><td>Wrong <code>PUBLIC_IP</code>; firewall blocking <code>52000-52099</code> UDP/TCP</td></tr>
+<tr><td>Unit starts with old image</td><td>Confirm <code>Pull=always</code> in the <code>.container</code> file; <code>systemctl restart browser-isolation.service</code></td></tr></tbody></table></div>
+<hr />
+<h2 id="related-files">Related files</h2>
+<div class="table-wrap"><table><thead><tr><th>Path</th><th>Purpose</th></tr></thead><tbody><tr><td><a href="../.github/workflows/publish-image.yml"><code>.github/workflows/publish-image.yml</code></a></td><td>CI build/push to GHCR</td></tr>
+<tr><td><a href="../deploy/podman/"><code>deploy/podman/</code></a></td><td>Quadlet units</td></tr>
+<tr><td><a href="../docker-compose.yml"><code>docker-compose.yml</code></a></td><td>Compose for Podman/Docker</td></tr>
+<tr><td><a href="#deployment" data-nav="deployment">DEPLOYMENT.md</a></td><td>TLS, firewall, capacity</td></tr>
+<tr><td><a href="#workers" data-nav="workers">WORKERS.md</a></td><td>Multi-host workers</td></tr></tbody></table></div>
+        </div>
+      </article>
+
       <article class="doc-page" id="page-workers" data-page="workers" hidden>
         <header class="doc-page-header">
           <p class="doc-kicker">docs/WORKERS.md</p>
@@ -1213,7 +1376,7 @@ docker compose up -d --build</code></pre>
 <p>The portal (orchestrator) schedules isolated browser containers onto one or more <strong>worker</strong> hosts so load is not stuck on a single machine.</p>
 <h2 id="roles">Roles</h2>
 <div class="table-wrap"><table><thead><tr><th>Role</th><th>Runs</th><th>Needs</th></tr></thead><tbody><tr><td>Orchestrator</td><td>Portal UI, auth, SQLite, session proxy</td><td>Reachability to each worker agent URL</td></tr>
-<tr><td>Worker</td><td>Docker + Neko containers + WebRTC ports</td><td>Client-reachable <code>PUBLIC_IP</code> and open <code>WEBRTC_PORT_RANGE</code></td></tr></tbody></table></div>
+<tr><td>Worker</td><td>Podman/Docker + Neko containers + WebRTC ports</td><td>Client-reachable <code>PUBLIC_IP</code> and open <code>WEBRTC_PORT_RANGE</code></td></tr></tbody></table></div>
 <p>Single-node installs keep <code>LOCAL_WORKER_ENABLED=true</code> (default): the orchestrator is also worker <code>local</code>.</p>
 <h2 id="networking-model">Networking model</h2>
 <pre class="code-block" data-lang="text"><code>User browser --HTTPS--&gt; Orchestrator --HTTP/WS--&gt; Worker agent --HTTP/WS--&gt; Neko container
@@ -1234,6 +1397,7 @@ User browser --WebRTC UDP/TCP--&gt; Worker PUBLIC_IP:webrtcPort</code></pre>
 <tr><td><code>neko-policies</code></td><td>Compose mounts the repo policies directory read-only</td></tr></tbody></table></div>
 <p>Agent implementation: <code>orchestrator/src/worker-main.ts</code> + <code>worker-agent/app.ts</code>. API inventory: <a href="API.md#worker-agent-v1">API.md</a>.</p>
 <h2 id="compose-on-a-browser-host">Compose on a browser host</h2>
+<p>Prefer Quadlet on production hosts: <a href="#podman" data-nav="podman">PODMAN.md</a> Part C.</p>
 <pre class="code-block" data-lang="bash"><code># In .env on that host:
 WORKER_ID=edge1
 WORKER_TOKEN=replace-me-with-a-long-secret
@@ -1242,7 +1406,8 @@ WORKER_PORT=8090
 WEBRTC_PORT_RANGE=52000-52099
 # Align published ports in docker-compose.yml if you change the range
 
-docker compose --profile worker up -d --build worker</code></pre>
+podman compose --profile worker up -d worker
+# Docker: CONTAINER_SOCKET=/var/run/docker.sock docker compose --profile worker up -d worker</code></pre>
 <p>The <code>worker</code> service publishes <code>52000-52099</code> UDP+TCP by default. Edit the Compose port mappings if your range differs.</p>
 <h2 id="registering-workers-on-the-portal">Registering workers on the portal</h2>
 <p><strong>Bootstrap via env</strong> (orchestrator host):</p>
@@ -1271,7 +1436,7 @@ LOCAL_WORKER_ENABLED=false   # optional: control-plane-only portal</code></pre>
 <tr><td><code>orchestrator/src/workers/client.ts</code></td><td>HTTP client to <code>/v1</code></td></tr>
 <tr><td><code>orchestrator/src/workers/placement.ts</code></td><td>Create/remove/proxy abstraction</td></tr>
 <tr><td><code>orchestrator/src/workers/scheduler.ts</code></td><td>Pick + poller + online TTL</td></tr>
-<tr><td><code>docker-compose.yml</code></td><td><code>worker</code> profile service</td></tr></tbody></table></div>
+<tr><td><code>docker-compose.yml</code> / <code>deploy/podman/</code></td><td><code>worker</code> profile or worker Quadlet</td></tr></tbody></table></div>
         </div>
       </article>
 

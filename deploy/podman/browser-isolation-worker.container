@@ -1,0 +1,36 @@
+[Unit]
+Description=Browser Isolation worker agent (extra browser host)
+After=network-online.target podman.socket
+Wants=network-online.target podman.socket
+
+[Container]
+Image=ghcr.io/thecookies/browserisolation:latest
+Pull=always
+ContainerName=browser-isolation-worker
+HostName=browser-isolation-worker
+Exec=node dist/worker-main.js
+
+PublishPort=8090:8090
+# WebRTC mux range — keep in sync with WEBRTC_PORT_RANGE in the env file
+PublishPort=52000-52099:52000-52099/tcp
+PublishPort=52000-52099:52000-52099/udp
+
+EnvironmentFile=/etc/browser-isolation/browser-isolation.env
+Environment=HOST=0.0.0.0
+Environment=WORKER_PORT=8090
+Environment=NODE_ENV=production
+Environment=DOCKER_SOCKET=/var/run/docker.sock
+
+Volume=/run/podman/podman.sock:/var/run/docker.sock
+# Bake policies into the image; override only if you customize on the host
+# Volume=/etc/browser-isolation/neko-policies:/app/orchestrator/neko-policies:ro
+Network=rbi-browsers.network
+
+PodmanArgs=--init
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

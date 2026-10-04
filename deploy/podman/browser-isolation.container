@@ -1,0 +1,40 @@
+[Unit]
+Description=Browser Isolation orchestrator (single-node + local worker)
+After=network-online.target podman.socket
+Wants=network-online.target podman.socket
+
+[Container]
+Image=ghcr.io/thecookies/browserisolation:latest
+Pull=always
+ContainerName=browser-isolation
+HostName=browser-isolation
+
+# Portal
+PublishPort=8080:8080
+# WebRTC mux range — keep in sync with WEBRTC_PORT_RANGE in the env file
+PublishPort=52000-52099:52000-52099/tcp
+PublishPort=52000-52099:52000-52099/udp
+
+EnvironmentFile=/etc/browser-isolation/browser-isolation.env
+Environment=HOST=0.0.0.0
+Environment=PORT=8080
+Environment=DATABASE_PATH=/data/rbi.sqlite
+Environment=STATIC_DIR=/app/web/dist
+Environment=NODE_ENV=production
+Environment=LOCAL_WORKER_ENABLED=true
+Environment=DOCKER_SOCKET=/var/run/docker.sock
+
+Volume=rbi-data.volume:/data
+# Rootful Podman API socket presented as Docker for dockerode
+Volume=/run/podman/podman.sock:/var/run/docker.sock
+Network=rbi-browsers.network
+
+# PID 1 reaping (Compose `init: true`)
+PodmanArgs=--init
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

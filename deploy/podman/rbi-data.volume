@@ -1,0 +1,5 @@
+[Unit]
+Description=Browser Isolation SQLite data volume
+
+[Volume]
+Label=app=browser-isolation

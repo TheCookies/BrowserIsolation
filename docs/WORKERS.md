@@ -7,7 +7,7 @@ The portal (orchestrator) schedules isolated browser containers onto one or more
 | Role | Runs | Needs |
 | --- | --- | --- |
 | Orchestrator | Portal UI, auth, SQLite, session proxy | Reachability to each worker agent URL |
-| Worker | Docker + Neko containers + WebRTC ports | Client-reachable `PUBLIC_IP` and open `WEBRTC_PORT_RANGE` |
+| Worker | Podman/Docker + Neko containers + WebRTC ports | Client-reachable `PUBLIC_IP` and open `WEBRTC_PORT_RANGE` |
 
 Single-node installs keep `LOCAL_WORKER_ENABLED=true` (default): the orchestrator is also worker `local`.
 
@@ -46,6 +46,8 @@ API inventory: [API.md](API.md#worker-agent-v1).
 
 ## Compose on a browser host
 
+Prefer Quadlet on production hosts: [PODMAN.md](PODMAN.md) Part C.
+
 ```bash
 # In .env on that host:
 WORKER_ID=edge1
@@ -55,7 +57,8 @@ WORKER_PORT=8090
 WEBRTC_PORT_RANGE=52000-52099
 # Align published ports in docker-compose.yml if you change the range
 
-docker compose --profile worker up -d --build worker
+podman compose --profile worker up -d worker
+# Docker: CONTAINER_SOCKET=/var/run/docker.sock docker compose --profile worker up -d worker
 ```
 
 The `worker` service publishes `52000-52099` UDP+TCP by default. Edit the Compose port mappings if your range differs.
@@ -107,4 +110,4 @@ Persistent profiles **stick** to the worker that first created the volume. Delet
 | `orchestrator/src/workers/client.ts` | HTTP client to `/v1` |
 | `orchestrator/src/workers/placement.ts` | Create/remove/proxy abstraction |
 | `orchestrator/src/workers/scheduler.ts` | Pick + poller + online TTL |
-| `docker-compose.yml` | `worker` profile service |
+| `docker-compose.yml` / `deploy/podman/` | `worker` profile or worker Quadlet |

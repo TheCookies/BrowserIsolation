@@ -1,6 +1,6 @@
 # Browser Isolation
 
-Self-hosted **remote browser isolation (RBI)**. Users sign in to a portal, launch an isolated browser in Docker, and interact with it through a custom WebRTC viewer in their own browser. Malicious pages stay inside the container; the user’s machine only sees a stream.
+Self-hosted **remote browser isolation (RBI)**. Users sign in to a portal, launch an isolated browser in a container (Podman or Docker), and interact with it through a custom WebRTC viewer in their own browser. Malicious pages stay inside the container; the user’s machine only sees a stream.
 
 This repo is an npm workspaces monorepo:
 
@@ -21,7 +21,8 @@ Isolated browsers are [Neko](https://neko.m1k1o.net/) containers (`ghcr.io/m1k1o
 4. **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** — local loop, tests, where to change code  
 5. **[docs/API.md](docs/API.md)** — HTTP/WebSocket surface  
 6. **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** — production, TLS, firewall, multi-host  
-7. **[docs/PLAN.md](docs/PLAN.md)** — what is built and what is next  
+7. **[docs/PODMAN.md](docs/PODMAN.md)** — GHCR publish + Podman remote auto-deploy  
+8. **[docs/PLAN.md](docs/PLAN.md)** — what is built and what is next  
 
 Full markdown index: **[docs/README.md](docs/README.md)**. Regenerate the HTML site after doc edits with `npm run docs`.
 
@@ -41,9 +42,11 @@ Full markdown index: **[docs/README.md](docs/README.md)**. Regenerate the HTML s
 
 ## Prerequisites
 
-- **Docker** and **Docker Compose v2** (recommended for the full stack)  
+- **Podman** (recommended) with Compose, or **Docker** + Compose v2  
 - Or **Node.js 22+** for local development and unit tests  
-- Docker socket access for the orchestrator (Compose mounts `/var/run/docker.sock`)
+- Container engine socket access for the orchestrator (Compose mounts the Podman/Docker API socket)
+
+Production remote hosts: publish via GHCR and auto-start with Quadlet — see **[docs/PODMAN.md](docs/PODMAN.md)**.
 
 ---
 
@@ -54,8 +57,8 @@ cp .env.example .env
 # Set PUBLIC_IP to this host's LAN or public address before launching browsers
 # from other machines. Use 127.0.0.1 only for same-host testing.
 
-docker compose --profile prepull pull   # optional but avoids first-launch waits
-docker compose up --build
+podman compose up --build
+# Docker Engine: CONTAINER_SOCKET=/var/run/docker.sock docker compose up --build
 ```
 
 Open **http://localhost:8080**.
@@ -81,7 +84,7 @@ npm run dev
 
 | Process | Port | Notes |
 | --- | --- | --- |
-| API (`orchestrator`) | `8080` | Needs Docker for real launches |
+| API (`orchestrator`) | `8080` | Needs Podman/Docker for real launches |
 | Vite UI (`web`) | `5173` | Proxies `/api` and `/session/*/view` → API |
 
 Production-style single process (API serves built UI):
@@ -105,6 +108,7 @@ BrowserIsolation/
 │   └── neko-policies/     # Managed browser policies injected into Neko
 ├── web/                   # React + Vite SPA + WebRTC viewer
 ├── docs/                  # Architecture, API, deploy, plans
+├── deploy/podman/         # Quadlet units for remote auto-start
 ├── data/                  # Local SQLite (gitignored)
 ├── docker-compose.yml
 ├── Dockerfile
@@ -134,13 +138,13 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for firewall ports, TLS, TURN, and 
 
 ## Multi-host workers
 
-One portal schedules Neko containers onto local Docker and/or remote **worker agents**. Signaling stays on the portal; WebRTC media goes to the worker’s `PUBLIC_IP`.
+One portal schedules Neko containers onto the local engine and/or remote **worker agents**. Signaling stays on the portal; WebRTC media goes to the worker’s `PUBLIC_IP`.
 
-Guide: **[docs/WORKERS.md](docs/WORKERS.md)**.
+Guide: **[docs/WORKERS.md](docs/WORKERS.md)**. Podman remote units: **[docs/PODMAN.md](docs/PODMAN.md)**.
 
 ```bash
 # On a browser host (after setting WORKER_ID, WORKER_TOKEN, PUBLIC_IP):
-docker compose --profile worker up -d --build worker
+podman compose --profile worker up -d worker
 ```
 
 ---
@@ -155,6 +159,7 @@ docker compose --profile worker up -d --build worker
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Dev setup, tests, coding map |
 | [docs/API.md](docs/API.md) | Portal + worker HTTP APIs |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Compose, TLS, firewall, ops |
+| [docs/PODMAN.md](docs/PODMAN.md) | GHCR + Podman Quadlet remote deploy |
 | [docs/WORKERS.md](docs/WORKERS.md) | Multi-host placement |
 | [docs/USER_IDENTITY.md](docs/USER_IDENTITY.md) | `subjectId`, profiles, SAML |
 | [docs/SECURITY.md](docs/SECURITY.md) | Threat model and hardening |

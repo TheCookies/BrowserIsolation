@@ -45,6 +45,12 @@ const PAGES = [
     blurb: "TLS, firewall, production ops",
   },
   {
+    id: "podman",
+    title: "Podman + GHCR",
+    file: "docs/PODMAN.md",
+    blurb: "Publish image and remote auto-pull",
+  },
+  {
     id: "workers",
     title: "Workers",
     file: "docs/WORKERS.md",

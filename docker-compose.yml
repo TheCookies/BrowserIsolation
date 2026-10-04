@@ -1,12 +1,26 @@
 name: browser-isolation
 
+# Works with Podman Compose (`podman compose`) and Docker Compose.
+# Production image: ghcr.io/thecookies/browserisolation:latest
+# Local iteration: podman compose up --build  (or docker compose up --build)
+#
+# Socket: Podman rootful API is /run/podman/podman.sock. Override with
+# CONTAINER_SOCKET=/var/run/docker.sock when using Docker Engine.
+
+x-app-image: &app-image
+  image: ghcr.io/thecookies/browserisolation:latest
+  build:
+    context: .
+    dockerfile: Dockerfile
+
 services:
   orchestrator:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *app-image
     ports:
       - "${PORT:-8080}:8080"
+      # Must match WEBRTC_PORT_RANGE on this host (single-node local worker).
+      - "52000-52099:52000-52099/udp"
+      - "52000-52099:52000-52099/tcp"
     env_file:
       - .env
     environment:
@@ -17,9 +31,11 @@ services:
       NODE_ENV: production
       # Keep true for single-node. Set false when browsers run only on worker hosts.
       LOCAL_WORKER_ENABLED: "${LOCAL_WORKER_ENABLED:-true}"
+      DOCKER_SOCKET: /var/run/docker.sock
     volumes:
       - rbi-data:/data
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Podman: mount API socket where dockerode expects Docker.
+      - ${CONTAINER_SOCKET:-/run/podman/podman.sock}:/var/run/docker.sock
     networks:
       - rbi-browsers
     init: true
@@ -37,13 +53,11 @@ services:
       retries: 5
       start_period: 15s
 
-  # Run on each browser host: docker compose --profile worker up -d worker
+  # Run on each browser host: podman compose --profile worker up -d worker
   # Set WORKER_ID, WORKER_TOKEN, and PUBLIC_IP for that host in .env first.
   worker:
+    <<: *app-image
     profiles: ["worker"]
-    build:
-      context: .
-      dockerfile: Dockerfile
     command: ["node", "dist/worker-main.js"]
     ports:
       - "${WORKER_PORT:-8090}:8090"
@@ -58,8 +72,9 @@ services:
       WORKER_ID: "${WORKER_ID:-worker}"
       WORKER_TOKEN: "${WORKER_TOKEN:-changeme}"
       NODE_ENV: production
+      DOCKER_SOCKET: /var/run/docker.sock
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ${CONTAINER_SOCKET:-/run/podman/podman.sock}:/var/run/docker.sock
       - ./orchestrator/neko-policies:/app/orchestrator/neko-policies:ro
     networks:
       - rbi-browsers

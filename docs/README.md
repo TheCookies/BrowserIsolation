@@ -21,11 +21,11 @@ Rebuild after editing markdown: `npm run docs`
 
 | Doc | When you need it |
 | --- | --- |
+| [PODMAN.md](PODMAN.md) | GHCR publish, Podman Quadlet, remote auto-pull `:latest` |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Production install, TLS, firewall, TURN |
 | [WORKERS.md](WORKERS.md) | Scaling browsers across hosts |
 | [USER_IDENTITY.md](USER_IDENTITY.md) | Profiles, `subjectId`, SAML |
 | [SECURITY.md](SECURITY.md) | Threat model, defaults, trust boundaries |
-
 ## Product
 
 | Doc | When you need it |
