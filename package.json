@@ -1,0 +1,27 @@
+{
+  "name": "browser-isolation",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "orchestrator",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev -w orchestrator\" \"npm run dev -w web\"",
+    "build": "npm run build -w web && npm run build -w orchestrator",
+    "test": "npm run test -w orchestrator",
+    "start": "npm run start -w orchestrator",
+    "docs": "node scripts/build-docs-site.mjs",
+    "docs:serve": "node scripts/build-docs-site.mjs && npx --yes serve docs/site -p 4173"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "allowScripts": {
+    "bcrypt@6.0.0": true,
+    "better-sqlite3@12.11.1": true,
+    "esbuild@0.28.2": true
+  }
+}

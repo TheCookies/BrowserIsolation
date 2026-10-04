@@ -1,0 +1,47 @@
+# Security notes
+
+Browser Isolation is a security product. Treat defaults as intentional and review this page before widening trust boundaries.
+
+## Threat model (summary)
+
+| In scope | Out of scope (today) |
+| --- | --- |
+| Malicious web content inside the isolated browser | Fully malicious admin with Docker socket access |
+| Cross-user session access via the portal | Client-side malware on the user’s machine |
+| Casual data exfil via clipboard/files when disabled | Perfect anonymity / anti-fingerprinting of Neko itself |
+
+The user’s endpoint should only receive a media stream and input events, not render untrusted HTML/JS from the target site.
+
+## Hardening defaults
+
+| Control | Default | Notes |
+| --- | --- | --- |
+| Clipboard sync | Off (`ALLOW_CLIPBOARD=false`) | Admin → Settings → Security |
+| Downloads / file transfer | Off (`ALLOW_DOWNLOADS=false`) | Same |
+| CSRF | On for mutating `/api/*` | SAML ACS exempt by necessity |
+| Session cookie | httpOnly, SameSite=Lax | Set `COOKIE_SECURE` under HTTPS |
+| Browser ACL | Owner or admin | Enforced in API and view proxy |
+| Managed policies | Injected at create | Removes SponsorBlock force-install; keeps uBlock |
+| Worker agent | Bearer token | Must not be public |
+
+## Trust boundaries
+
+```text
+[ User browser ]  --trusted UI/API-->  [ Orchestrator ]
+        |                                     |
+        | WebRTC (media)                      | Docker socket / worker Bearer
+        v                                     v
+[ Worker PUBLIC_IP ]  <----- container ---->  [ Neko / target web ]
+```
+
+- Anyone who can call the Docker socket or forge `WORKER_TOKEN` can run arbitrary containers on that host.  
+- Admins can join any session (by design); audit those actions.  
+- SAML trust depends on IdP certificate configuration and `PUBLIC_BASE_URL`.
+
+## Operational checklist
+
+See the checklist in [DEPLOYMENT.md](DEPLOYMENT.md#security-checklist). In short: HTTPS, rotate defaults, lock down agent ports, keep exfil toggles off unless required, back up SQLite deliberately.
+
+## Reporting issues
+
+If you find a vulnerability in this project, do not open a public issue with exploit details. Contact the maintainers privately with reproduction steps and impact.

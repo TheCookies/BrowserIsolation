@@ -1,0 +1,351 @@
+0 verbose cli /usr/bin/node-22 /usr/bin/npm
+1 info using npm@10.9.8
+2 info using node@v22.23.2
+3 silly config load:file:/usr/lib/node_modules_22/npm/npmrc
+4 silly config load:file:/root/BrowserIsolation/.npmrc
+5 silly config load:file:/root/.npmrc
+6 silly config load:file:/etc/npmrc
+7 verbose title npm install @fontsource/space-grotesk @fontsource/ibm-plex-sans
+8 verbose argv "install" "@fontsource/space-grotesk" "@fontsource/ibm-plex-sans" "--workspace" "web" "--cache" "/root/BrowserIsolation/.npm-cache"
+9 verbose logfile logs-max:10 dir:/root/BrowserIsolation/.npm-cache/_logs/2026-10-03T19_26_22_259Z-
+10 verbose logfile /root/BrowserIsolation/.npm-cache/_logs/2026-10-03T19_26_22_259Z-debug-0.log
+11 silly logfile start cleaning logs, removing 1 files
+12 silly logfile done cleaning log files
+13 silly packumentCache heap:2197815296 maxSize:549453824 maxEntrySize:274726912
+14 silly idealTree buildDeps
+15 silly fetch manifest @fontsource/space-grotesk@*
+16 silly packumentCache full:https://registry.npmjs.org/@fontsource%2fspace-grotesk cache-miss
+17 http fetch GET 200 https://registry.npmjs.org/@fontsource%2fspace-grotesk 194ms (cache miss)
+18 silly packumentCache full:https://registry.npmjs.org/@fontsource%2fspace-grotesk set size:undefined disposed:false
+19 silly fetch manifest @fontsource/ibm-plex-sans@*
+20 silly packumentCache full:https://registry.npmjs.org/@fontsource%2fibm-plex-sans cache-miss
+21 http fetch GET 200 https://registry.npmjs.org/@fontsource%2fibm-plex-sans 89ms (cache miss)
+22 silly packumentCache full:https://registry.npmjs.org/@fontsource%2fibm-plex-sans set size:undefined disposed:false
+23 silly placeDep ROOT @fontsource/ibm-plex-sans@5.3.0 OK for: web@0.1.0 want: *
+24 silly placeDep ROOT @fontsource/space-grotesk@5.3.0 OK for: web@0.1.0 want: *
+25 silly reify moves {}
+26 silly audit bulk request {
+26 silly audit   '@babel/code-frame': [ '7.29.7' ],
+26 silly audit   '@babel/compat-data': [ '7.29.7' ],
+26 silly audit   '@babel/core': [ '7.29.7' ],
+26 silly audit   '@babel/generator': [ '7.29.8' ],
+26 silly audit   '@babel/helper-compilation-targets': [ '7.29.7' ],
+26 silly audit   '@babel/helper-globals': [ '7.29.7' ],
+26 silly audit   '@babel/helper-module-imports': [ '7.29.7' ],
+26 silly audit   '@babel/helper-module-transforms': [ '7.29.7' ],
+26 silly audit   '@babel/helper-plugin-utils': [ '7.29.7' ],
+26 silly audit   '@babel/helper-string-parser': [ '7.29.7' ],
+26 silly audit   '@babel/helper-validator-identifier': [ '7.29.7' ],
+26 silly audit   '@babel/helper-validator-option': [ '7.29.7' ],
+26 silly audit   '@babel/helpers': [ '7.29.7' ],
+26 silly audit   '@babel/parser': [ '7.29.9' ],
+26 silly audit   '@babel/plugin-transform-react-jsx-self': [ '7.29.7' ],
+26 silly audit   '@babel/plugin-transform-react-jsx-source': [ '7.29.7' ],
+26 silly audit   '@babel/template': [ '7.29.7' ],
+26 silly audit   '@babel/traverse': [ '7.29.8' ],
+26 silly audit   '@babel/types': [ '7.29.8' ],
+26 silly audit   '@esbuild/aix-ppc64': [ '0.28.2' ],
+26 silly audit   '@esbuild/android-arm': [ '0.28.2' ],
+26 silly audit   '@esbuild/android-arm64': [ '0.28.2' ],
+26 silly audit   '@esbuild/android-x64': [ '0.28.2' ],
+26 silly audit   '@esbuild/darwin-arm64': [ '0.28.2' ],
+26 silly audit   '@esbuild/darwin-x64': [ '0.28.2' ],
+26 silly audit   '@esbuild/freebsd-arm64': [ '0.28.2' ],
+26 silly audit   '@esbuild/freebsd-x64': [ '0.28.2' ],
+26 silly audit   '@esbuild/linux-arm': [ '0.28.2' ],
+26 silly audit   '@esbuild/linux-arm64': [ '0.28.2' ],
+26 silly audit   '@esbuild/linux-ia32': [ '0.28.2' ],
+26 silly audit   '@esbuild/linux-loong64': [ '0.28.2' ],
+26 silly audit   '@esbuild/linux-mips64el': [ '0.28.2' ],
+26 silly audit   '@esbuild/linux-ppc64': [ '0.28.2' ],
+26 silly audit   '@esbuild/linux-riscv64': [ '0.28.2' ],
+26 silly audit   '@esbuild/linux-s390x': [ '0.28.2' ],
+26 silly audit   '@esbuild/linux-x64': [ '0.28.2' ],
+26 silly audit   '@esbuild/netbsd-arm64': [ '0.28.2' ],
+26 silly audit   '@esbuild/netbsd-x64': [ '0.28.2' ],
+26 silly audit   '@esbuild/openbsd-arm64': [ '0.28.2' ],
+26 silly audit   '@esbuild/openbsd-x64': [ '0.28.2' ],
+26 silly audit   '@esbuild/openharmony-arm64': [ '0.28.2' ],
+26 silly audit   '@esbuild/sunos-x64': [ '0.28.2' ],
+26 silly audit   '@esbuild/win32-arm64': [ '0.28.2' ],
+26 silly audit   '@esbuild/win32-ia32': [ '0.28.2' ],
+26 silly audit   '@esbuild/win32-x64': [ '0.28.2' ],
+26 silly audit   '@jridgewell/gen-mapping': [ '0.3.13' ],
+26 silly audit   '@jridgewell/remapping': [ '2.3.5' ],
+26 silly audit   '@jridgewell/resolve-uri': [ '3.1.2' ],
+26 silly audit   '@jridgewell/sourcemap-codec': [ '1.6.0' ],
+26 silly audit   '@jridgewell/trace-mapping': [ '0.3.31' ],
+26 silly audit   '@napi-rs/lzma-linux-x64-gnu': [ '1.5.1' ],
+26 silly audit   '@rolldown/pluginutils': [ '1.0.0-rc.3' ],
+26 silly audit   '@rollup/rollup-android-arm-eabi': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-android-arm64': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-darwin-arm64': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-darwin-x64': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-freebsd-arm64': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-freebsd-x64': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-linux-arm-gnueabihf': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-linux-arm-musleabihf': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-linux-arm64-gnu': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-linux-arm64-musl': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-linux-loong64-gnu': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-linux-loong64-musl': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-linux-ppc64-gnu': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-linux-ppc64-musl': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-linux-riscv64-gnu': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-linux-riscv64-musl': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-linux-s390x-gnu': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-linux-x64-gnu': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-linux-x64-musl': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-openbsd-x64': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-openharmony-arm64': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-win32-arm64-msvc': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-win32-ia32-msvc': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-win32-x64-gnu': [ '4.64.0' ],
+26 silly audit   '@rollup/rollup-win32-x64-msvc': [ '4.64.0' ],
+26 silly audit   '@types/babel__core': [ '7.20.5' ],
+26 silly audit   '@types/babel__generator': [ '7.27.0' ],
+26 silly audit   '@types/babel__template': [ '7.4.4' ],
+26 silly audit   '@types/babel__traverse': [ '7.28.0' ],
+26 silly audit   '@types/estree': [ '1.0.9' ],
+26 silly audit   '@types/node': [ '22.20.5' ],
+26 silly audit   '@types/react': [ '19.3.0' ],
+26 silly audit   '@types/react-dom': [ '19.3.0' ],
+26 silly audit   'undici-types': [ '6.21.0' ],
+26 silly audit   '@vitejs/plugin-react': [ '5.2.0' ],
+26 silly audit   'baseline-browser-mapping': [ '2.11.27' ],
+26 silly audit   browserslist: [ '4.29.3' ],
+26 silly audit   'caniuse-lite': [ '1.0.30001814' ],
+26 silly audit   'convert-source-map': [ '2.0.0' ],
+26 silly audit   cookie: [ '1.1.1' ],
+26 silly audit   csstype: [ '3.2.3' ],
+26 silly audit   debug: [ '4.4.3' ],
+26 silly audit   'electron-to-chromium': [ '1.5.444' ],
+26 silly audit   esbuild: [ '0.28.2' ],
+26 silly audit   escalade: [ '3.2.0' ],
+26 silly audit   eventemitter3: [ '5.0.4' ],
+26 silly audit   semver: [ '6.3.1' ],
+26 silly audit   fdir: [ '6.5.0' ],
+26 silly audit   fsevents: [ '2.3.3' ],
+26 silly audit   gensync: [ '1.0.0-beta.2' ],
+26 silly audit   'js-tokens': [ '4.0.0' ],
+26 silly audit   jsesc: [ '3.1.0' ],
+26 silly audit   json5: [ '2.2.3' ],
+26 silly audit   'lru-cache': [ '5.1.1' ],
+26 silly audit   ms: [ '2.1.3' ],
+26 silly audit   nanoid: [ '3.3.19' ],
+26 silly audit   'node-releases': [ '2.0.57' ],
+26 silly audit   picocolors: [ '1.1.1' ],
+26 silly audit   picomatch: [ '4.0.7' ],
+26 silly audit   postcss: [ '8.5.28' ],
+26 silly audit   react: [ '19.3.0' ],
+26 silly audit   'react-dom': [ '19.3.0' ],
+26 silly audit   'react-refresh': [ '0.18.0' ],
+26 silly audit   'react-router': [ '7.18.4' ],
+26 silly audit   'react-router-dom': [ '7.18.4' ],
+26 silly audit   rollup: [ '4.64.0' ],
+26 silly audit   scheduler: [ '0.28.0' ],
+26 silly audit   'set-cookie-parser': [ '2.7.2' ],
+26 silly audit   'source-map-js': [ '1.2.2' ],
+26 silly audit   tinyglobby: [ '0.2.17' ],
+26 silly audit   tsx: [ '4.23.15' ],
+26 silly audit   typescript: [ '5.9.3' ],
+26 silly audit   'update-browserslist-db': [ '1.3.3' ],
+26 silly audit   vite: [ '7.3.6' ],
+26 silly audit   yallist: [ '3.1.1' ],
+26 silly audit   web: [ '0.1.0' ],
+26 silly audit   '@fontsource/ibm-plex-sans': [ '5.3.0' ],
+26 silly audit   '@fontsource/space-grotesk': [ '5.3.0' ]
+26 silly audit }
+27 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/fsevents
+28 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/fsevents' ]
+29 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-win32-x64-msvc
+30 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@rollup/rollup-win32-x64-msvc' ]
+31 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-win32-x64-gnu
+32 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@rollup/rollup-win32-x64-gnu' ]
+33 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-win32-ia32-msvc
+34 silly reify mark deleted [
+34 silly reify   '/root/BrowserIsolation/node_modules/@rollup/rollup-win32-ia32-msvc'
+34 silly reify ]
+35 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-win32-arm64-msvc
+36 silly reify mark deleted [
+36 silly reify   '/root/BrowserIsolation/node_modules/@rollup/rollup-win32-arm64-msvc'
+36 silly reify ]
+37 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-openharmony-arm64
+38 silly reify mark deleted [
+38 silly reify   '/root/BrowserIsolation/node_modules/@rollup/rollup-openharmony-arm64'
+38 silly reify ]
+39 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-openbsd-x64
+40 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@rollup/rollup-openbsd-x64' ]
+41 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-linux-s390x-gnu
+42 silly reify mark deleted [
+42 silly reify   '/root/BrowserIsolation/node_modules/@rollup/rollup-linux-s390x-gnu'
+42 silly reify ]
+43 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-linux-riscv64-musl
+44 silly reify mark deleted [
+44 silly reify   '/root/BrowserIsolation/node_modules/@rollup/rollup-linux-riscv64-musl'
+44 silly reify ]
+45 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-linux-riscv64-gnu
+46 silly reify mark deleted [
+46 silly reify   '/root/BrowserIsolation/node_modules/@rollup/rollup-linux-riscv64-gnu'
+46 silly reify ]
+47 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-linux-ppc64-musl
+48 silly reify mark deleted [
+48 silly reify   '/root/BrowserIsolation/node_modules/@rollup/rollup-linux-ppc64-musl'
+48 silly reify ]
+49 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-linux-ppc64-gnu
+50 silly reify mark deleted [
+50 silly reify   '/root/BrowserIsolation/node_modules/@rollup/rollup-linux-ppc64-gnu'
+50 silly reify ]
+51 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-linux-loong64-musl
+52 silly reify mark deleted [
+52 silly reify   '/root/BrowserIsolation/node_modules/@rollup/rollup-linux-loong64-musl'
+52 silly reify ]
+53 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-linux-loong64-gnu
+54 silly reify mark deleted [
+54 silly reify   '/root/BrowserIsolation/node_modules/@rollup/rollup-linux-loong64-gnu'
+54 silly reify ]
+55 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-linux-arm64-musl
+56 silly reify mark deleted [
+56 silly reify   '/root/BrowserIsolation/node_modules/@rollup/rollup-linux-arm64-musl'
+56 silly reify ]
+57 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-linux-arm64-gnu
+58 silly reify mark deleted [
+58 silly reify   '/root/BrowserIsolation/node_modules/@rollup/rollup-linux-arm64-gnu'
+58 silly reify ]
+59 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-linux-arm-musleabihf
+60 silly reify mark deleted [
+60 silly reify   '/root/BrowserIsolation/node_modules/@rollup/rollup-linux-arm-musleabihf'
+60 silly reify ]
+61 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-linux-arm-gnueabihf
+62 silly reify mark deleted [
+62 silly reify   '/root/BrowserIsolation/node_modules/@rollup/rollup-linux-arm-gnueabihf'
+62 silly reify ]
+63 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-freebsd-x64
+64 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@rollup/rollup-freebsd-x64' ]
+65 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-freebsd-arm64
+66 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@rollup/rollup-freebsd-arm64' ]
+67 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-darwin-x64
+68 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@rollup/rollup-darwin-x64' ]
+69 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-darwin-arm64
+70 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@rollup/rollup-darwin-arm64' ]
+71 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-android-arm64
+72 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@rollup/rollup-android-arm64' ]
+73 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@rollup/rollup-android-arm-eabi
+74 silly reify mark deleted [
+74 silly reify   '/root/BrowserIsolation/node_modules/@rollup/rollup-android-arm-eabi'
+74 silly reify ]
+75 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/win32-x64
+76 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/win32-x64' ]
+77 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/win32-ia32
+78 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/win32-ia32' ]
+79 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/win32-arm64
+80 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/win32-arm64' ]
+81 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/sunos-x64
+82 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/sunos-x64' ]
+83 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/openharmony-arm64
+84 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/openharmony-arm64' ]
+85 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/openbsd-x64
+86 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/openbsd-x64' ]
+87 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/openbsd-arm64
+88 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/openbsd-arm64' ]
+89 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/netbsd-x64
+90 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/netbsd-x64' ]
+91 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/netbsd-arm64
+92 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/netbsd-arm64' ]
+93 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/linux-s390x
+94 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/linux-s390x' ]
+95 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/linux-riscv64
+96 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/linux-riscv64' ]
+97 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/linux-ppc64
+98 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/linux-ppc64' ]
+99 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/linux-mips64el
+100 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/linux-mips64el' ]
+101 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/linux-loong64
+102 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/linux-loong64' ]
+103 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/linux-ia32
+104 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/linux-ia32' ]
+105 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/linux-arm64
+106 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/linux-arm64' ]
+107 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/linux-arm
+108 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/linux-arm' ]
+109 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/freebsd-x64
+110 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/freebsd-x64' ]
+111 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/freebsd-arm64
+112 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/freebsd-arm64' ]
+113 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/darwin-x64
+114 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/darwin-x64' ]
+115 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/darwin-arm64
+116 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/darwin-arm64' ]
+117 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/android-x64
+118 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/android-x64' ]
+119 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/android-arm64
+120 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/android-arm64' ]
+121 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/android-arm
+122 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/android-arm' ]
+123 verbose reify failed optional dependency /root/BrowserIsolation/node_modules/@esbuild/aix-ppc64
+124 silly reify mark deleted [ '/root/BrowserIsolation/node_modules/@esbuild/aix-ppc64' ]
+125 http cache @fontsource/space-grotesk@https://registry.npmjs.org/@fontsource/space-grotesk/-/space-grotesk-5.3.0.tgz 1ms (cache hit)
+126 http cache @fontsource/ibm-plex-sans@https://registry.npmjs.org/@fontsource/ibm-plex-sans/-/ibm-plex-sans-5.3.0.tgz 0ms (cache hit)
+127 silly tarball no local data for @fontsource/space-grotesk@https://registry.npmjs.org/@fontsource/space-grotesk/-/space-grotesk-5.3.0.tgz. Extracting by manifest.
+128 silly tarball no local data for @fontsource/ibm-plex-sans@https://registry.npmjs.org/@fontsource/ibm-plex-sans/-/ibm-plex-sans-5.3.0.tgz. Extracting by manifest.
+129 http fetch POST 200 https://registry.npmjs.org/-/npm/v1/security/advisories/bulk 33ms
+130 silly audit report {}
+131 http fetch GET 200 https://registry.npmjs.org/@fontsource/space-grotesk/-/space-grotesk-5.3.0.tgz 138ms (cache miss)
+132 http fetch GET 200 https://registry.npmjs.org/@fontsource/ibm-plex-sans/-/ibm-plex-sans-5.3.0.tgz 235ms (cache miss)
+133 silly ADD node_modules/@fontsource/space-grotesk
+134 silly ADD node_modules/@fontsource/ibm-plex-sans
+135 silly ADD
+136 silly ADD
+137 silly ADD
+138 silly ADD
+139 silly ADD
+140 silly ADD
+141 silly ADD
+142 silly ADD
+143 silly ADD
+144 silly ADD
+145 silly ADD
+146 silly ADD
+147 silly ADD
+148 silly ADD
+149 silly ADD
+150 silly ADD
+151 silly ADD
+152 silly ADD
+153 silly ADD
+154 silly ADD
+155 silly ADD
+156 silly ADD
+157 silly ADD
+158 silly ADD
+159 silly ADD
+160 silly ADD
+161 silly ADD
+162 silly ADD
+163 silly ADD
+164 silly ADD
+165 silly ADD
+166 silly ADD
+167 silly ADD
+168 silly ADD
+169 silly ADD
+170 silly ADD
+171 silly ADD
+172 silly ADD
+173 silly ADD
+174 silly ADD
+175 silly ADD
+176 silly ADD
+177 silly ADD
+178 silly ADD
+179 silly ADD
+180 silly ADD
+181 silly ADD
+182 silly ADD
+183 silly ADD
+184 verbose cwd /root/BrowserIsolation
+185 verbose os Linux 6.12.0-124.8.1.el10_1.x86_64
+186 verbose node v22.23.2
+187 verbose npm  v10.9.8
+188 verbose exit 0
+189 info ok

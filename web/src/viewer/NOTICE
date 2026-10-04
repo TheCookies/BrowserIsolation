@@ -1,0 +1,20 @@
+This directory contains code derived from the Neko project
+(https://github.com/m1k1o/neko), specifically the client WebRTC/signaling
+core under client/src/neko/, and Guacamole Keyboard under
+client/src/utils/guacamole-keyboard.{js,ts}
+(vendored here as guacamole-keyboard.impl.js + guacamole-keyboard.ts).
+
+Copyright (C) 2020 Nurdism <nurdism.io@gmail.com>
+Copyright (C) 2020-2024 m1k1o & Demodesk GmbH
+Copyright (C) 2024- m1k1o
+
+Guacamole Keyboard is from the Apache Guacamole project
+(https://guacamole.apache.org/), licensed under the Apache License, Version 2.0.
+
+Licensed under the Apache License, Version 2.0. See LICENSE-APACHE-2.0
+in this directory.
+
+Modifications for Browser Isolation:
+- Removed Vue, store, chat, and UI branding dependencies
+- Integrated with the portal React session page
+- Keyboard input uses Guacamole keysyms instead of browser keyCode
