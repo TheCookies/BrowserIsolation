@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AppDeps } from "../app";
+import { imagesForBrowsers } from "../config";
 import { collectHostMetrics, type HostMetrics } from "../host-metrics";
 import { createRemoteWorkerClient } from "../workers/client";
 import { isWorkerOnline } from "../workers/scheduler";
@@ -14,6 +15,39 @@ function requireAdmin(request: FastifyRequest, reply: FastifyReply): boolean {
     return false;
   }
   return true;
+}
+
+function scheduleEnabledBrowserPull(
+  deps: AppDeps,
+  workerId: string,
+  actorUsername: string,
+): { pullingImages: boolean; pullImageCount: number } {
+  const images = imagesForBrowsers(deps.config);
+  if (images.length === 0) return { pullingImages: false, pullImageCount: 0 };
+
+  void deps.placement
+    .pullImagesOnWorker(workerId, images)
+    .then((results) => {
+      const failed = results.filter((row) => !row.ok);
+      deps.audit.record({
+        actorUsername,
+        action: "pull_browsers",
+        detail:
+          failed.length === 0
+            ? `pulled ${results.length} image(s) onto worker ${workerId} after authorize`
+            : `pulled onto worker ${workerId} with errors (${failed.length} failed)`,
+      });
+    })
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      deps.audit.record({
+        actorUsername,
+        action: "pull_browsers",
+        detail: `failed pulling browsers onto worker ${workerId}: ${message}`,
+      });
+    });
+
+  return { pullingImages: true, pullImageCount: images.length };
 }
 
 export function registerAdminWorkerRoutes(app: FastifyInstance, deps: AppDeps): void {
@@ -137,15 +171,26 @@ export function registerAdminWorkerRoutes(app: FastifyInstance, deps: AppDeps): 
 
       const latest = workerStore.get(worker.id) ?? worker;
 
+      let pullingImages = false;
+      let pullImageCount = 0;
+      if (latest.enabled && !probeError) {
+        const scheduled = scheduleEnabledBrowserPull(deps, latest.id, request.authUser!.username);
+        pullingImages = scheduled.pullingImages;
+        pullImageCount = scheduled.pullImageCount;
+      }
+
       audit.record({
         actorUsername: request.authUser!.username,
         action: latest.enabled ? "enable_worker" : "disable_worker",
         detail: `${latest.enabled ? "enabled" : "disabled"} worker ${latest.id}` +
-          (probeError ? ` (probe failed: ${probeError})` : ""),
+          (probeError ? ` (probe failed: ${probeError})` : "") +
+          (pullingImages ? ` (pulling ${pullImageCount} browser image(s))` : ""),
       });
       return {
         ok: true,
         probeError,
+        pullingImages,
+        pullImageCount,
         worker: {
           id: latest.id,
           baseUrl: latest.baseUrl,

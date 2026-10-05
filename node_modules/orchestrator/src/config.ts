@@ -301,6 +301,13 @@ export function imageForBrowser(config: Config, browser: BrowserType): string {
   return imageForNekoBrowser(meta, config.nekoImageTag);
 }
 
+export function imagesForBrowsers(
+  config: Config,
+  browsers: readonly BrowserType[] = config.enabledBrowsers,
+): string[] {
+  return [...new Set(browsers.map((browser) => imageForBrowser(config, browser)))];
+}
+
 /** In-container path for the managed policy file (Neko browser images). */
 export function policyMountForBrowser(browser: BrowserType): {
   dir: string;

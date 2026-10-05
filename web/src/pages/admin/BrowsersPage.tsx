@@ -259,8 +259,9 @@ export function BrowsersPage() {
         <div>
           <h1>Browsers</h1>
           <p className="hint">
-            Choose which browsers users can launch. Saving pulls newly enabled images and deletes
-            images for browsers you turn off. Tag: <strong>{imageTag}</strong>.
+            Choose which browsers users can launch. Saving pulls newly enabled images onto the main
+            host and every authorized worker; Pull latest refreshes them all. Tag:{" "}
+            <strong>{imageTag}</strong>.
           </p>
         </div>
         <div className="panel-actions">

@@ -220,6 +220,9 @@ export async function buildWorkerAgent(deps: WorkerAgentDeps): Promise<FastifyIn
   app.all("/v1/proxy/:containerId", proxyHandler);
   app.all("/v1/proxy/:containerId/*", proxyHandler);
 
+  let upgradeHandler: ((req: IncomingMessage, socket: Socket, head: Buffer) => void) | null =
+    null;
+
   app.addHook("onListen", async () => {
     const server = app.server as Server;
     const onUpgrade = (req: IncomingMessage, socket: Socket, head: Buffer) => {
@@ -260,11 +263,16 @@ export async function buildWorkerAgent(deps: WorkerAgentDeps): Promise<FastifyIn
           socket.destroy();
         });
     };
+    upgradeHandler = onUpgrade;
     server.prependListener("upgrade", onUpgrade);
-    app.addHook("onClose", async () => {
-      server.off("upgrade", onUpgrade);
-      proxy.close();
-    });
+  });
+
+  app.addHook("onClose", async () => {
+    const server = app.server as Server | null;
+    if (server && upgradeHandler) {
+      server.off("upgrade", upgradeHandler);
+    }
+    proxy.close();
   });
 
   return app;

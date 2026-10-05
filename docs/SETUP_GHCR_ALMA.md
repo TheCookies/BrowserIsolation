@@ -145,22 +145,24 @@ sudo podman restart browser-isolation
 
 # Extra worker hosts later
 
-On each new Alma worker host, run the bootstrap script (prompts only for the orchestrator host/IP):
+On each new Alma worker host:
 
 ```bash
+sudo bash install-worker.sh
+# or from image:
 sudo podman run --rm --entrypoint cat \
   ghcr.io/thecookies/browserisolation:latest /deploy/install-worker.sh | sudo bash
 ```
 
-The script configures Podman, logs into GHCR, pulls images, enrolls with the orchestrator as **Pending**, and starts the worker Quadlet. Then open **Admin → Workers → Authorize**.
+Prompts only for the orchestrator host/IP. Configures Podman, GHCR login, image pulls, enroll, and starts the worker.
 
-Orchestrator must have matching `WORKER_ENROLL_TOKEN` (included in new `install.sh` / entrypoint env files; add it to existing `/etc/browser-isolation/browser-isolation.env` if upgrading):
+Orchestrator install (blank box):
 
 ```bash
-WORKER_ENROLL_TOKEN=rbi_enroll_k9m2Vx7Qp4Hs8nWc3YfL6tZa1Bd0EgR5
+sudo bash install-orchestrator.sh
 ```
 
-See [WORKERS.md](WORKERS.md) for status meanings and the deprecated manual Add worker form.
+See [deploy/podman/README.md](../deploy/podman/README.md).
 
 ---
 

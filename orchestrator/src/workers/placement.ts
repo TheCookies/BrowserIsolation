@@ -48,6 +48,11 @@ export type WorkerPlacement = {
     images: string[],
     onProgress?: ImagePullProgressHandler,
   ): Promise<Array<ImagePullResult & { workerId: string }>>;
+  pullImagesOnWorker(
+    workerId: string,
+    images: string[],
+    onProgress?: ImagePullProgressHandler,
+  ): Promise<Array<ImagePullResult & { workerId: string }>>;
   removeImages(images: string[]): Promise<Array<ImageRemoveResult & { workerId: string }>>;
   proxyTarget(
     workerId: string,
@@ -313,58 +318,79 @@ export function createWorkerPlacement(deps: {
       return out;
     },
 
-    async pullImages(images, onProgress) {
+    async pullImagesOnWorker(workerId, images, onProgress) {
+      const worker = requireWorker(workerId);
       const results: Array<ImagePullResult & { workerId: string }> = [];
-      for (const worker of store.list()) {
-        if (!worker.enabled) continue;
-        try {
-          if (worker.kind === "local") {
-            const pulled = await localRuntime.pullImages(images, (event) => {
-              onProgress?.({
-                ...event,
-                detail: event.detail
-                  ? `[${worker.id}] ${event.detail}`
-                  : `[${worker.id}] ${event.status}`,
-              });
+      try {
+        if (worker.kind === "local") {
+          const pulled = await localRuntime.pullImages(images, (event) => {
+            onProgress?.({
+              ...event,
+              detail: event.detail
+                ? `[${worker.id}] ${event.detail}`
+                : `[${worker.id}] ${event.status}`,
             });
-            for (const item of pulled) results.push({ ...item, workerId: worker.id });
-          } else {
-            for (const image of images) {
-              onProgress?.({
-                image,
-                status: "Pulling",
-                detail: `[${worker.id}] Requesting pull on remote worker…`,
-              });
-            }
-            const pulled = await remote(worker).pullImages(images);
-            for (const item of pulled) {
-              onProgress?.({
-                image: item.image,
-                status: item.ok ? "complete" : "error",
-                percent: item.ok ? 100 : undefined,
-                detail: item.ok
-                  ? `[${worker.id}] Pull complete`
-                  : `[${worker.id}] ${item.error ?? "pull failed"}`,
-              });
-              results.push({ ...item, workerId: worker.id });
-            }
-          }
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+          });
+          for (const item of pulled) results.push({ ...item, workerId: worker.id });
+        } else {
           for (const image of images) {
             onProgress?.({
               image,
-              status: "error",
-              detail: `[${worker.id}] ${message}`,
-            });
-            results.push({
-              image,
-              ok: false,
-              error: message,
-              workerId: worker.id,
+              status: "Pulling",
+              detail: `[${worker.id}] Requesting pull on remote worker…`,
             });
           }
+          const pulled = await remote(worker).pullImages(images);
+          for (const item of pulled) {
+            onProgress?.({
+              image: item.image,
+              status: item.ok ? "complete" : "error",
+              percent: item.ok ? 100 : undefined,
+              detail: item.ok
+                ? `[${worker.id}] Pull complete`
+                : `[${worker.id}] ${item.error ?? "pull failed"}`,
+            });
+            results.push({ ...item, workerId: worker.id });
+          }
         }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        for (const image of images) {
+          onProgress?.({
+            image,
+            status: "error",
+            detail: `[${worker.id}] ${message}`,
+          });
+          results.push({
+            image,
+            ok: false,
+            error: message,
+            workerId: worker.id,
+          });
+        }
+      }
+      return results;
+    },
+
+    async pullImages(images, onProgress) {
+      const results: Array<ImagePullResult & { workerId: string }> = [];
+      const targets = store.list().filter((worker) => worker.enabled);
+      if (targets.length === 0) {
+        onProgress?.({
+          image: images[0] ?? "",
+          status: "error",
+          detail: "No enabled workers to pull images onto",
+        });
+        return results;
+      }
+      onProgress?.({
+        image: images[0] ?? "",
+        status: "Pulling",
+        detail: `Pulling on ${targets.length} host(s): ${targets.map((w) => w.id).join(", ")}`,
+      });
+      for (const worker of targets) {
+        const pulled = await this.pullImagesOnWorker(worker.id, images, onProgress);
+        results.push(...pulled);
       }
       return results;
     },

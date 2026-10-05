@@ -1,8 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AppDeps } from "../app";
-import { imageForBrowser } from "../config";
+import { imagesForBrowsers } from "../config";
 import {
-  getNekoBrowser,
   imageForNekoBrowser,
   NEKO_BROWSERS,
   normalizeBrowserId,
@@ -38,20 +37,8 @@ function catalogPayload(config: AppDeps["config"]) {
   };
 }
 
-function imagesForBrowsers(config: AppDeps["config"], browsers: readonly BrowserType[]): string[] {
-  return [
-    ...new Set(
-      browsers.map((id) => {
-        const meta = getNekoBrowser(id);
-        if (!meta) throw new Error(`unknown browser ${id}`);
-        return imageForBrowser(config, id);
-      }),
-    ),
-  ];
-}
-
 export function registerAdminBrowserRoutes(app: FastifyInstance, deps: AppDeps): void {
-  const { config, settings, placement, audit } = deps;
+  const { config, settings, placement, audit, workerStore } = deps;
 
   app.get("/api/admin/browsers", async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
@@ -199,7 +186,15 @@ export function registerAdminBrowserRoutes(app: FastifyInstance, deps: AppDeps):
         type: "start",
         tag: config.nekoImageTag,
         images: unique,
-        message: `Pulling ${unique.length} image(s) at tag ${config.nekoImageTag}…`,
+        workers: workerStore.list().filter((w) => w.enabled).map((w) => w.id),
+        message: (() => {
+          const hosts = workerStore.list().filter((w) => w.enabled);
+          const hostLabel =
+            hosts.length === 0
+              ? "no enabled workers"
+              : `${hosts.length} host(s) (${hosts.map((w) => w.id).join(", ")})`;
+          return `Pulling ${unique.length} image(s) on ${hostLabel} at tag ${config.nekoImageTag}…`;
+        })(),
       });
 
       const results = await placement.pullImages(unique, (event) => {
@@ -207,14 +202,15 @@ export function registerAdminBrowserRoutes(app: FastifyInstance, deps: AppDeps):
       });
       const failed = results.filter((result) => !result.ok);
       const okCount = results.length - failed.length;
+      const hostIds = [...new Set(results.map((row) => row.workerId))];
       audit.record({
         actorUsername: request.authUser!.username,
         action: "pull_browsers",
         detail:
           failed.length === 0
-            ? `pulled ${okCount} image(s) (tag ${config.nekoImageTag})`
-            : `pulled ${okCount}/${results.length} image(s); failed: ${failed
-                .map((row) => row.image)
+            ? `pulled ${okCount} image(s) on ${hostIds.length} host(s) [${hostIds.join(", ")}] (tag ${config.nekoImageTag})`
+            : `pulled ${okCount}/${results.length} image(s) on [${hostIds.join(", ")}]; failed: ${failed
+                .map((row) => `${row.image}@${row.workerId}`)
                 .join(", ")}`,
       });
       send({

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../app";
+import { imagesForBrowsers } from "../config";
 import { safeEqual } from "../security";
 import { isWorkerOnline } from "../workers/scheduler";
 
@@ -26,6 +27,33 @@ function sanitizeWorkerId(raw: string): string | null {
 
 function defaultWorkerId(): string {
   return `worker-${randomBytes(4).toString("hex")}`;
+}
+
+function scheduleEnabledBrowserPull(deps: AppDeps, workerId: string): void {
+  const images = imagesForBrowsers(deps.config);
+  if (images.length === 0) return;
+
+  void deps.placement
+    .pullImagesOnWorker(workerId, images)
+    .then((results) => {
+      const failed = results.filter((row) => !row.ok);
+      deps.audit.record({
+        actorUsername: "system",
+        action: "pull_browsers",
+        detail:
+          failed.length === 0
+            ? `pulled ${results.length} image(s) onto worker ${workerId} after enroll`
+            : `pulled onto worker ${workerId} after enroll with errors (${failed.length} failed)`,
+      });
+    })
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      deps.audit.record({
+        actorUsername: "system",
+        action: "pull_browsers",
+        detail: `failed pulling browsers onto worker ${workerId} after enroll: ${message}`,
+      });
+    });
 }
 
 export function registerWorkerEnrollRoutes(app: FastifyInstance, deps: AppDeps): void {
@@ -106,6 +134,7 @@ export function registerWorkerEnrollRoutes(app: FastifyInstance, deps: AppDeps):
         // Agent may not be listening yet during install; probe is best-effort.
         const probed = await placement.probeWorker(worker.id);
         if (!probed.ok) probeError = probed.error;
+        else scheduleEnabledBrowserPull(deps, worker.id);
       }
 
       const latest = workerStore.get(worker.id) ?? worker;
@@ -139,6 +168,7 @@ export function registerWorkerEnrollRoutes(app: FastifyInstance, deps: AppDeps):
         enabled: latest.enabled,
         online: isWorkerOnline(latest),
         probeError,
+        pullingImages: Boolean(latest.enabled && !probeError && imagesForBrowsers(config).length > 0),
       };
     },
   );

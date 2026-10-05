@@ -123,6 +123,10 @@ export function WorkersPage() {
         );
       } else if (enabled && result.worker && !result.worker.online) {
         setWorkersMessage(`Authorized ${worker.id}, but it is offline. Check worker health.`);
+      } else if (enabled && result.pullingImages) {
+        setWorkersMessage(
+          `Authorized ${worker.id}. Pulling ${result.pullImageCount ?? "enabled"} browser image(s) onto it in the background.`,
+        );
       } else {
         setWorkersMessage(enabled ? `Authorized ${worker.id}.` : `Deauthorized ${worker.id}.`);
       }
