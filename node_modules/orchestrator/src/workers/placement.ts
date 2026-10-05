@@ -143,6 +143,7 @@ export function createWorkerPlacement(deps: {
             webrtcPort,
             publicIp: config.publicIp,
             ipAddress: created.ipAddress,
+            proxyOrigin: created.proxyOrigin,
           };
           if (full.persistProfile) {
             store.setProfilePlacement(full.subjectId, full.browser, worker.id);
@@ -285,15 +286,15 @@ export function createWorkerPlacement(deps: {
     async proxyTarget(workerId, containerId, _containerName) {
       const worker = requireWorker(workerId);
       if (worker.kind === "local") {
-        // Prefer container IP over Docker/Podman DNS names. With --network=host
-        // (Podman deploy) the orchestrator is not on rbi-browsers, so names like
-        // rbi-<session> do not resolve and the viewer WebSocket dies immediately.
+        // Prefer loopback-published Neko port (Podman --network=host orchestrator).
+        // Fall back to bridge IP. Never use container DNS names here.
         const info = await localRuntime.inspect(containerId);
-        const host = info?.ipAddress;
-        if (!host) {
+        const origin =
+          info?.proxyOrigin || (info?.ipAddress ? `http://${info.ipAddress}:8080` : null);
+        if (!origin) {
           throw Object.assign(new Error("container_missing_ip"), { statusCode: 502 });
         }
-        return { targetOrigin: `http://${host}:8080` };
+        return { targetOrigin: origin };
       }
       const client = remote(worker);
       return {

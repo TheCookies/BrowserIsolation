@@ -33,6 +33,12 @@ export type Config = {
   /** Image tag for all Neko browser images (default latest). */
   nekoImageTag: string;
   browserNetwork: string;
+  /**
+   * How browser containers attach to the host:
+   * - bridge: Docker-style custom network + published ports (compose default)
+   * - host: share host netns (needed for Podman/Hyper-V where published ports are unreachable)
+   */
+  browserNetworkMode: "bridge" | "host";
   browserShmSizeBytes: number;
   browserNanoCpus: number;
   browserMemoryBytes: number;
@@ -220,6 +226,13 @@ export function loadConfig(env: NodeJS.ProcessEnv, baseDir: string): Config {
     enabledBrowsers,
     nekoImageTag,
     browserNetwork: env.BROWSER_NETWORK?.trim() || "rbi-browsers",
+    browserNetworkMode: (() => {
+      const mode = (env.BROWSER_NETWORK_MODE?.trim() || "bridge").toLowerCase();
+      if (mode !== "bridge" && mode !== "host") {
+        throw new Error('BROWSER_NETWORK_MODE must be "bridge" or "host".');
+      }
+      return mode;
+    })(),
     browserShmSizeBytes: parseByteSize("BROWSER_SHM_SIZE", env.BROWSER_SHM_SIZE?.trim() || "2gb"),
     browserNanoCpus: parseCpu(env.BROWSER_CPUS),
     browserMemoryBytes: parseByteSize("BROWSER_MEMORY", env.BROWSER_MEMORY?.trim() || "2g"),

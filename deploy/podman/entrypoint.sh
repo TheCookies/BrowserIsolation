@@ -64,6 +64,8 @@ ALLOW_CLIPBOARD=false
 ALLOW_DOWNLOADS=false
 LOCAL_WORKER_ENABLED=true
 BROWSER_NETWORK=rbi-browsers
+# host: WebRTC binds on the host (required for Podman + Hyper-V Default Switch)
+BROWSER_NETWORK_MODE=host
 BROWSER_SHM_SIZE=2gb
 BROWSER_CPUS=3
 BROWSER_MEMORY=2g

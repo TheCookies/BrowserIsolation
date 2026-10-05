@@ -130,11 +130,12 @@ function createBrowserSessionService(deps) {
                 // Local containers are reached over the Docker network; wait for readiness here.
                 // Remote workers already wait inside the agent before returning.
                 if (worker.kind === "local") {
-                    const host = created.ipAddress || created.containerName;
-                    if (!host)
+                    const readyUrl = created.proxyOrigin ||
+                        (created.ipAddress ? `http://${created.ipAddress}:8080` : null);
+                    if (!readyUrl)
                         throw new Error("container_missing_host");
                     try {
-                        await neko.waitUntilReady(`http://${host}:8080`);
+                        await neko.waitUntilReady(readyUrl);
                     }
                     catch (readyError) {
                         const logs = await placement.logs(worker.id, created.containerId).catch(() => "");

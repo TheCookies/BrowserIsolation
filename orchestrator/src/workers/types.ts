@@ -32,6 +32,8 @@ export type WorkerCreateBrowserResponse = {
   webrtcPort: number;
   publicIp: string;
   ipAddress: string | null;
+  /** Local HTTP/WS origin for readiness + proxy (e.g. http://127.0.0.1:xxxxx). */
+  proxyOrigin?: string | null;
 };
 
 export type WorkerStatusResponse = {

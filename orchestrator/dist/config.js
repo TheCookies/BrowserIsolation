@@ -143,6 +143,13 @@ function loadConfig(env, baseDir) {
         enabledBrowsers,
         nekoImageTag,
         browserNetwork: env.BROWSER_NETWORK?.trim() || "rbi-browsers",
+        browserNetworkMode: (() => {
+            const mode = (env.BROWSER_NETWORK_MODE?.trim() || "bridge").toLowerCase();
+            if (mode !== "bridge" && mode !== "host") {
+                throw new Error('BROWSER_NETWORK_MODE must be "bridge" or "host".');
+            }
+            return mode;
+        })(),
         browserShmSizeBytes: parseByteSize("BROWSER_SHM_SIZE", env.BROWSER_SHM_SIZE?.trim() || "2gb"),
         browserNanoCpus: parseCpu(env.BROWSER_CPUS),
         browserMemoryBytes: parseByteSize("BROWSER_MEMORY", env.BROWSER_MEMORY?.trim() || "2g"),

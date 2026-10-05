@@ -5,7 +5,7 @@ import { parseProfileVolumeName, profileStorageKey, profileVolumeName } from "..
 import type { BrowserType, Config } from "../config";
 import { imageForBrowser, policyMountForBrowser } from "../config";
 import type { BrowserLaunchSettings } from "../workers/types";
-import { LABEL_BROWSER, LABEL_MANAGED, managedLabels } from "./labels";
+import { LABEL_BROWSER, LABEL_MANAGED, LABEL_WEBRTC_PORT, managedLabels } from "./labels";
 import { policyArchiveFromFile } from "./policy-tar";
 import { profileContainerPath } from "./profile-paths";
 
@@ -47,6 +47,12 @@ export type BrowserContainerInfo = {
   id: string;
   name: string;
   ipAddress: string | null;
+  /**
+   * Preferred HTTP/WS origin for the orchestrator proxy.
+   * When the orchestrator uses host networking (Podman), this is usually
+   * http://127.0.0.1:<published-8080> so we do not rely on bridge DNS/routing.
+   */
+  proxyOrigin: string | null;
   running: boolean;
   status: string;
   labels: Record<string, string>;
@@ -279,12 +285,16 @@ function memberProfileJson(allowClipboard: boolean): string {
   return JSON.stringify({ can_access_clipboard: allowClipboard });
 }
 
-function nekoEnv(view: RuntimeView, input: CreateBrowserContainerInput): string[] {
+function nekoEnv(
+  view: RuntimeView,
+  input: CreateBrowserContainerInput,
+  httpPort: number,
+): string[] {
   // Neko serves at /. The orchestrator strips /session/:id/view when proxying.
   // Avoid NEKO_SERVER_PATH_PREFIX — legacy /ws auth breaks under a path prefix on 3.1.x.
   const clipboardProfile = memberProfileJson(view.allowClipboard);
   return [
-    "NEKO_SERVER_BIND=0.0.0.0:8080",
+    `NEKO_SERVER_BIND=0.0.0.0:${httpPort}`,
     "NEKO_SERVER_PROXY=true",
     "NEKO_SERVER_PATH_PREFIX=/",
     "NEKO_MEMBER_PROVIDER=multiuser",
@@ -328,18 +338,52 @@ function readNetworkIp(
   return legacyIp || null;
 }
 
+function readPublishedHostPort(
+  inspection: Docker.ContainerInspectInfo,
+  containerPort: string,
+): number | null {
+  const bindings = inspection.NetworkSettings?.Ports?.[containerPort];
+  if (!bindings?.length) return null;
+  const preferred =
+    bindings.find((row) => row.HostIp === "127.0.0.1") ??
+    bindings.find((row) => !row.HostIp || row.HostIp === "0.0.0.0") ??
+    bindings[0];
+  const raw = preferred?.HostPort;
+  if (!raw) return null;
+  const port = Number.parseInt(raw, 10);
+  return Number.isFinite(port) && port > 0 ? port : null;
+}
+
 function toInfo(
   inspection: Docker.ContainerInspectInfo,
   networkName: string,
+  networkMode: "bridge" | "host",
 ): BrowserContainerInfo {
   const name = inspection.Name.startsWith("/") ? inspection.Name.slice(1) : inspection.Name;
+  const labels = inspection.Config?.Labels ?? {};
+  const ipAddress = readNetworkIp(inspection, networkName);
+  const publishedHttp = readPublishedHostPort(inspection, "8080/tcp");
+
+  let proxyOrigin: string | null = null;
+  if (networkMode === "host") {
+    const webrtc = Number.parseInt(labels[LABEL_WEBRTC_PORT] ?? "", 10);
+    if (Number.isFinite(webrtc) && webrtc > 0) {
+      proxyOrigin = `http://127.0.0.1:${webrtc + 10000}`;
+    }
+  } else if (publishedHttp) {
+    proxyOrigin = `http://127.0.0.1:${publishedHttp}`;
+  } else if (ipAddress) {
+    proxyOrigin = `http://${ipAddress}:8080`;
+  }
+
   return {
     id: inspection.Id,
     name,
-    ipAddress: readNetworkIp(inspection, networkName),
+    ipAddress: networkMode === "host" ? "127.0.0.1" : ipAddress,
+    proxyOrigin,
     running: Boolean(inspection.State?.Running),
     status: inspection.State?.Status ?? "unknown",
-    labels: inspection.Config?.Labels ?? {},
+    labels,
   };
 }
 
@@ -371,6 +415,7 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
 
   return {
     async ensureNetwork() {
+      if (config.browserNetworkMode === "host") return;
       const networks = await docker.listNetworks({
         filters: { name: [config.browserNetwork] },
       });
@@ -396,6 +441,10 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
         webrtcPort: input.webrtcPort,
       });
       const port = String(input.webrtcPort);
+      // Host mode: HTTP cannot stay on 8080 (orchestrator uses it). Offset WebRTC port.
+      const httpPort =
+        config.browserNetworkMode === "host" ? input.webrtcPort + 10000 : 8080;
+      const useHostNet = config.browserNetworkMode === "host";
       const mounts: Array<{ Type: "volume"; Source: string; Target: string; ReadOnly: boolean }> = [];
 
       if (input.persistProfile) {
@@ -425,15 +474,17 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
       const container = await docker.createContainer({
         name,
         Image: imageForBrowser(launchConfig, input.browser),
-        Env: nekoEnv(view, input),
+        Env: nekoEnv(view, input, httpPort),
         Labels: labels,
-        // Join the browser network via EndpointsConfig (not NetworkMode=name) so
-        // PortBindings keep working under Podman as well as Docker.
-        NetworkingConfig: {
-          EndpointsConfig: {
-            [config.browserNetwork]: {},
-          },
-        },
+        ...(useHostNet
+          ? {}
+          : {
+              NetworkingConfig: {
+                EndpointsConfig: {
+                  [config.browserNetwork]: {},
+                },
+              },
+            }),
         HostConfig: {
           Init: true,
           ShmSize: view.browserShmSizeBytes,
@@ -457,17 +508,29 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
           ],
           // Chrome's sandbox syscalls are outside Docker's default seccomp profile.
           SecurityOpt: ["no-new-privileges:true", "seccomp=unconfined"],
-          PortBindings: {
-            [`${port}/udp`]: [{ HostIp: "0.0.0.0", HostPort: port }],
-            [`${port}/tcp`]: [{ HostIp: "0.0.0.0", HostPort: port }],
-          },
+          NetworkMode: useHostNet ? "host" : config.browserNetwork,
+          // Host mode binds ports directly (no DNAT). Bridge mode publishes ports.
+          ...(useHostNet
+            ? {}
+            : {
+                PortBindings: {
+                  [`${port}/udp`]: [{ HostIp: "0.0.0.0", HostPort: port }],
+                  [`${port}/tcp`]: [{ HostIp: "0.0.0.0", HostPort: port }],
+                  "8080/tcp": [{ HostIp: "127.0.0.1", HostPort: "0" }],
+                },
+              }),
           RestartPolicy: { Name: "no" },
           Mounts: mounts.length > 0 ? mounts : undefined,
         },
-        ExposedPorts: {
-          [`${port}/udp`]: {},
-          [`${port}/tcp`]: {},
-        },
+        ...(useHostNet
+          ? {}
+          : {
+              ExposedPorts: {
+                [`${port}/udp`]: {},
+                [`${port}/tcp`]: {},
+                "8080/tcp": {},
+              },
+            }),
       });
 
       // Replace Neko's default managed policy (removes force-installed SponsorBlock).
@@ -494,9 +557,18 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
 
       for (let attempt = 0; attempt < 40; attempt += 1) {
         const inspection = await container.inspect();
-        const info = toInfo(inspection, config.browserNetwork);
-        if (info.running && info.ipAddress) {
-          return info;
+        const info = toInfo(inspection, config.browserNetwork, config.browserNetworkMode);
+        if (info.running) {
+          if (useHostNet) {
+            return {
+              ...info,
+              ipAddress: "127.0.0.1",
+              proxyOrigin: `http://127.0.0.1:${httpPort}`,
+            };
+          }
+          if (info.proxyOrigin || info.ipAddress) {
+            return info;
+          }
         }
         if (!info.running && attempt >= 4) {
           const logs = await readLogs(container.id);
@@ -507,8 +579,19 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
         await sleep(250);
       }
 
-      const latest = toInfo(await container.inspect(), config.browserNetwork);
-      if (!latest.ipAddress) {
+      const latest = toInfo(
+        await container.inspect(),
+        config.browserNetwork,
+        config.browserNetworkMode,
+      );
+      if (useHostNet && latest.running) {
+        return {
+          ...latest,
+          ipAddress: "127.0.0.1",
+          proxyOrigin: `http://127.0.0.1:${httpPort}`,
+        };
+      }
+      if (!latest.proxyOrigin && !latest.ipAddress) {
         const logs = await readLogs(container.id);
         throw new Error(`container_missing_ip${logs ? `: ${logs}` : ""}`);
       }
@@ -518,7 +601,7 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
     async inspect(containerId) {
       try {
         const inspection = await docker.getContainer(containerId).inspect();
-        return toInfo(inspection, config.browserNetwork);
+        return toInfo(inspection, config.browserNetwork, config.browserNetworkMode);
       } catch (error) {
         const statusCode = (error as { statusCode?: number }).statusCode;
         if (statusCode === 404) return null;

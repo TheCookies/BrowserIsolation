@@ -82,16 +82,18 @@ async function buildWorkerAgent(deps) {
             const created = await runtime.createBrowserContainer((0, client_1.toCreateInput)(body, webrtcPort));
             containerId = created.id;
             portByContainer.set(created.id, webrtcPort);
-            const host = created.ipAddress || created.name;
-            if (!host)
+            const readyUrl = created.proxyOrigin ||
+                (created.ipAddress ? `http://${created.ipAddress}:8080` : null);
+            if (!readyUrl)
                 throw new Error("container_missing_host");
-            await neko.waitUntilReady(`http://${host}:8080`);
+            await neko.waitUntilReady(readyUrl);
             return {
                 containerId: created.id,
                 containerName: created.name,
                 webrtcPort,
                 publicIp: config.publicIp,
                 ipAddress: created.ipAddress,
+                proxyOrigin: created.proxyOrigin,
             };
         }
         catch (error) {
@@ -149,10 +151,10 @@ async function buildWorkerAgent(deps) {
     });
     const proxyHandler = async (request, reply) => {
         const info = await runtime.inspect(request.params.containerId);
-        if (!info?.running || !info.ipAddress) {
+        const target = info?.proxyOrigin || (info?.ipAddress ? `http://${info.ipAddress}:8080` : null);
+        if (!info?.running || !target) {
             return reply.code(503).send({ error: "session_unavailable" });
         }
-        const target = `http://${info.ipAddress}:8080`;
         const prefix = `/v1/proxy/${request.params.containerId}`;
         let url = request.raw.url ?? "/";
         if (url === prefix)
@@ -182,7 +184,8 @@ async function buildWorkerAgent(deps) {
             void runtime
                 .inspect(containerId)
                 .then((info) => {
-                if (!info?.running || !info.ipAddress) {
+                const target = info?.proxyOrigin || (info?.ipAddress ? `http://${info.ipAddress}:8080` : null);
+                if (!info?.running || !target) {
                     socket.write("HTTP/1.1 503 unavailable\r\nConnection: close\r\n\r\n");
                     socket.destroy();
                     return;
@@ -196,7 +199,7 @@ async function buildWorkerAgent(deps) {
                     next = next.slice(prefix.length) || "/";
                 }
                 req.url = next;
-                proxy.ws(req, socket, head, { target: `http://${info.ipAddress}:8080` });
+                proxy.ws(req, socket, head, { target });
             })
                 .catch(() => {
                 socket.write("HTTP/1.1 502 bad_gateway\r\nConnection: close\r\n\r\n");

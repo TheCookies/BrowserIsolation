@@ -275,8 +275,14 @@ function readonlySettings(config) {
         {
             key: "BROWSER_NETWORK",
             label: "Browser network",
-            description: "Docker network for browser containers.",
+            description: "Docker/Podman network for browser containers (bridge mode).",
             value: config.browserNetwork,
+        },
+        {
+            key: "BROWSER_NETWORK_MODE",
+            label: "Browser network mode",
+            description: 'bridge (compose) or host (Podman/Hyper-V when published ports are unreachable).',
+            value: config.browserNetworkMode,
         },
         {
             key: "WEBRTC_PORT_RANGE",

@@ -137,7 +137,7 @@ sudo podman restart browser-isolation
 | pull denied | `read:packages` token + `--authfile /etc/containers/auth.json` |
 | no admin password in logs | `.env` already existed; see `/etc/browser-isolation/.env` (`AUTH_USERS=`) |
 | `EACCES /var/run/docker.sock` | recreate with `--security-opt label=disable` (SELinux); ensure `podman.socket` is up |
-| `websocket closed (reconnect failed)` | Pull/redeploy latest image — host-network Podman must proxy via container IP, not `rbi-*` DNS names |
+| `websocket closed` / stuck on Connecting | Set `BROWSER_NETWORK_MODE=host` in `/etc/browser-isolation/.env` (Podman published ports often unreachable from Hyper-V Default Switch). Redeploy latest image, remove old `rbi-*` containers, retry. |
 | wrong PUBLIC_IP | edit `/etc/browser-isolation/.env` or delete `.env` and recreate container |
 | old image without entrypoint | wait for green **Publish image**, then `podman pull` again |
 
@@ -163,4 +163,3 @@ Put `WORKER_ID`, `WORKER_TOKEN`, `PUBLIC_IP`, etc. in that host’s `/config/.en
 ---
 
 Related: [PODMAN.md](PODMAN.md), [DEPLOYMENT.md](DEPLOYMENT.md).
-Portal admin password: Ca3AE3Dgk94VHMq8Wo6uuQD1
