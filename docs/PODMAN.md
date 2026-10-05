@@ -1,9 +1,9 @@
 # Podman + GitHub Container Registry (GHCR)
 
-**Start here (super simple Alma deploy):** **[SETUP_GHCR_ALMA.md](SETUP_GHCR_ALMA.md)**  
-`podman login` → `podman run --network=host` with `/config` + `/data` + socket mounts. The container creates `.env` on first boot.
+**Start here (Alma blank-box):** **[SETUP_GHCR_ALMA.md](SETUP_GHCR_ALMA.md)**  
+**Installer index:** **[../deploy/podman/README.md](../deploy/podman/README.md)**
 
-Run Browser Isolation with **Podman** instead of Docker, publish the app image from GitHub Actions to a **private** GHCR package, and recreate the container to pick up `:latest`.
+Run Browser Isolation with **Podman**, publish the app image from GitHub Actions to a **private** GHCR package, and re-run the install script (or recreate the container) to pick up `:latest`.
 
 Your private GitHub **code** repo is not a container registry. Pulls use:
 
@@ -11,7 +11,11 @@ Your private GitHub **code** repo is not a container registry. Pulls use:
 ghcr.io/thecookies/browserisolation:latest
 ```
 
-The orchestrator still talks to a Docker-compatible API (dockerode). On Podman that is the **rootful** `podman.socket`, mounted into the container as `/var/run/docker.sock`.
+The orchestrator still talks to a Docker-compatible API (dockerode). On Podman that is the **rootful** `podman.socket`. Production installers mount it at the **same path inside the container**:
+
+```text
+/run/podman/podman.sock  →  DOCKER_SOCKET=/run/podman/podman.sock
+```
 
 ---
 
@@ -20,10 +24,13 @@ The orchestrator still talks to a Docker-compatible API (dockerode). On Podman t
 | Piece | Role |
 | --- | --- |
 | GitHub Actions workflow | Builds [`Dockerfile`](../Dockerfile) on every push to `main` and pushes `:latest` + short SHA tags |
-| GHCR package | Private image store for the remote host |
-| Container entrypoint | Create-once `/config/.env`, then start orchestrator |
-| Host mounts | `/config`, `rbi-data`, `podman.sock`; `--network=host` |
-| Extra hosts (later) | Same image with `RBI_ROLE=worker` |
+| GHCR package | Private image store for remote hosts |
+| Install scripts | `install-orchestrator.sh` / `install-worker.sh` (canonical Alma path) |
+| Container entrypoint | Create-once `/config/.env` if missing, then start portal or worker via `RBI_ROLE` |
+| Host mounts | `/config`, `rbi-data` (orchestrator), `podman.sock`; `--network=host` |
+| Extra hosts | Same image with `RBI_ROLE=worker` + enroll |
+
+**Quadlet** (`.container` units under `deploy/podman/`) remains as an optional/legacy reference. Installers stop old Quadlet services when present. Prefer the install scripts for new hosts.
 
 ---
 
@@ -31,9 +38,21 @@ The orchestrator still talks to a Docker-compatible API (dockerode). On Podman t
 
 ### 1. Push the workflow
 
-The workflow lives at [`.github/workflows/publish-image.yml`](../.github/workflows/publish-image.yml). Merge it to `main` (or push `main` if you are already on it).
+The workflow lives at [`.github/workflows/publish-image.yml`](../.github/workflows/publish-image.yml). Merge/push to `main`.
 
 It uses the built-in `GITHUB_TOKEN` with `packages: write`. You do **not** need to create a secret just to publish from this repo.
+
+Current action pins (Node 24–native runners):
+
+| Action | Version |
+| --- | --- |
+| `actions/checkout` | v7 |
+| `docker/login-action` | v4 |
+| `docker/metadata-action` | v6 |
+| `docker/setup-buildx-action` | v4 |
+| `docker/build-push-action` | v7 |
+
+Image build base: `node:26-bookworm-slim` (see [`Dockerfile`](../Dockerfile)).
 
 ### 2. Watch the Action
 
@@ -41,27 +60,22 @@ It uses the built-in `GITHUB_TOKEN` with `packages: write`. You do **not** need 
 2. Select **Publish image**.
 3. Open the latest run and wait until it is green.
 
-If it fails on permissions, check **Settings → Actions → General → Workflow permissions** and allow read/write for `GITHUB_TOKEN` (or keep the workflow’s explicit `packages: write`).
+If it fails on permissions, check **Settings → Actions → General → Workflow permissions** and allow read/write for `GITHUB_TOKEN`.
 
 ### 3. Find the package
 
 1. Open the repo → right sidebar **Packages**, or your org/user → **Packages**.
-2. Open **browserisolation** (name may appear as `browserisolation`).
+2. Open **browserisolation**.
 3. Confirm the image URI is `ghcr.io/thecookies/browserisolation`.
-4. Under package settings, keep visibility **Private** (default for private repos).
+4. Keep visibility **Private**.
 
-Optional but useful: under package **Package settings → Manage Actions access**, ensure this repository has a role that can write (the publishing workflow needs that once; pull from a remote uses a PAT — next step).
+### 4. Create a pull token (manual hosts only)
 
-### 4. Create a pull token for the remote host
+Install scripts for this deployment already include GHCR login. For a custom machine:
 
-The remote machine is not GitHub Actions, so it needs credentials to pull a private package.
-
-1. GitHub → profile → **Settings → Developer settings → Personal access tokens**.
-2. Create a **classic** token with at least:
-   - `read:packages`
-3. Copy the token once. Store it only on the remote host (or a secret manager). Do not commit it.
-
-Fine-grained tokens can work if granted **read** access to the package (and the repo if your org requires it). Classic `read:packages` is the simplest first path.
+1. GitHub → **Settings → Developer settings → Personal access tokens**.
+2. Classic token with at least `read:packages`.
+3. Store it only on the remote host (or a secret manager). Do not commit it.
 
 ---
 
@@ -70,41 +84,29 @@ Fine-grained tokens can work if granted **read** access to the package (and the 
 Full Alma checklist: [SETUP_GHCR_ALMA.md](SETUP_GHCR_ALMA.md).
 
 ```bash
-sudo dnf install -y podman
-sudo systemctl enable --now podman.socket
-echo "$GHCR_TOKEN" | sudo podman login ghcr.io -u YOUR_GITHUB_USERNAME \
-  --authfile /etc/containers/auth.json --password-stdin
-sudo mkdir -p /etc/browser-isolation
-sudo podman run -d --name browser-isolation --restart=always --network=host \
-  --security-opt label=disable \
-  -v /etc/browser-isolation:/config:Z \
-  -v rbi-data:/data:Z \
-  -v /run/podman/podman.sock:/var/run/docker.sock \
-  ghcr.io/thecookies/browserisolation:latest
-sudo podman logs browser-isolation | grep "Portal admin password"
+sudo bash deploy/podman/install-orchestrator.sh
+# or pipe from the published image — see SETUP_GHCR_ALMA.md
 ```
 
-After a new GHCR publish: pull `:latest`, `podman rm -f browser-isolation`, run the same `podman run` again (`.env` + data kept).
+After a new GHCR publish, re-run the same script (keeps `/etc/browser-isolation/.env` + `rbi-data`).
 
 ---
 
-## Part C — Extra worker hosts (later)
-
-Do **not** install `browser-isolation.container` on these machines.
-
-1. Same Podman + `podman.socket` + `podman login ghcr.io` steps as Part B.
-2. Env file with at least:
+## Part C — Extra worker hosts
 
 ```bash
-WORKER_ID=edge1
-WORKER_TOKEN=long-random-secret
-WORKER_PORT=8090
-PUBLIC_IP=10.0.0.5
-WEBRTC_PORT_RANGE=52000-52099
-DOCKER_SOCKET=/var/run/docker.sock
+sudo bash deploy/podman/install-worker.sh
+# Prompt: Orchestrator host or URL
+# Or: ORCHESTRATOR=10.0.0.2 sudo -E bash install-worker.sh
 ```
 
-3. Install the worker unit + network (no data volume required):
+Then on the portal: **Admin → Workers → Authorize**. The orchestrator pulls enabled Neko images onto that host after authorize (the worker installer does **not** pre-pull browsers).
+
+Details: [WORKERS.md](WORKERS.md).
+
+### Legacy Quadlet (optional)
+
+If you still want systemd Quadlet units instead of `podman run`:
 
 ```bash
 sudo cp deploy/podman/browser-isolation-worker.container \
@@ -114,13 +116,13 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now browser-isolation-worker.service
 ```
 
-4. Register the worker on the portal: **Admin → Workers**, or set `WORKERS=` on the orchestrator host. Details: [WORKERS.md](WORKERS.md).
+Prefer aligning with the installer’s host-network + `/run/podman/podman.sock` conventions; older Quadlet samples may still mention `/var/run/docker.sock`.
 
 ---
 
 ## Compose alternative (laptop / quick test)
 
-Quadlet is the recommended production path. For a quick stack from a git checkout:
+For a quick stack from a git checkout (not the Alma blank-box path):
 
 ```bash
 cp .env.example .env
@@ -133,7 +135,7 @@ podman compose up -d --build
 # CONTAINER_SOCKET=/var/run/docker.sock docker compose up -d --build
 ```
 
-[`docker-compose.yml`](../docker-compose.yml) defaults `CONTAINER_SOCKET` to `/run/podman/podman.sock` and still supports `build:` for local images.
+[`docker-compose.yml`](../docker-compose.yml) defaults `CONTAINER_SOCKET` to `/run/podman/podman.sock` and supports `build:` for local images. The container **entrypoint** still runs; Compose can override role/command for the worker profile.
 
 Worker-only:
 
@@ -147,11 +149,11 @@ podman compose --profile worker up -d worker
 
 | Symptom | Likely fix |
 | --- | --- |
-| `denied` / `unauthorized` on pull | `podman login ghcr.io` with a token that has `read:packages`; use `sudo` if the service runs rootful |
+| `denied` / `unauthorized` on pull | `podman login ghcr.io` with `read:packages`; use `sudo` + `--authfile` if the service runs rootful |
 | Package not found after first Action | Wait for a green **Publish image** run; check org package visibility |
-| Orchestrator up but cannot create browsers | `podman.socket` not running; socket not mounted; SELinux denying socket (`sudo setsebool -P container_manage_cgroup on` on some RHEL setups) |
-| WebRTC fails remotely | Wrong `PUBLIC_IP`; firewall blocking `52000-52099` UDP/TCP |
-| Unit starts with old image | Confirm `Pull=always` in the `.container` file; `systemctl restart browser-isolation.service` |
+| Orchestrator up but cannot create browsers | `podman.socket` not running; socket not mounted at `/run/podman/podman.sock`; SELinux — installers use `--privileged` + `label=disable` |
+| WebRTC fails remotely | Wrong `PUBLIC_IP`; firewall blocking `52000-52099` UDP/TCP; need `BROWSER_NETWORK_MODE=host` on Alma |
+| Unit / container starts with old image | Re-run `install-orchestrator.sh` / `install-worker.sh` |
 
 ---
 
@@ -160,7 +162,10 @@ podman compose --profile worker up -d worker
 | Path | Purpose |
 | --- | --- |
 | [`.github/workflows/publish-image.yml`](../.github/workflows/publish-image.yml) | CI build/push to GHCR |
-| [`deploy/podman/`](../deploy/podman/) | Quadlet units |
+| [`deploy/podman/install-orchestrator.sh`](../deploy/podman/install-orchestrator.sh) | Canonical Alma portal install |
+| [`deploy/podman/install-worker.sh`](../deploy/podman/install-worker.sh) | Canonical Alma worker install |
+| [`deploy/podman/entrypoint.sh`](../deploy/podman/entrypoint.sh) | Image entrypoint (`RBI_ROLE`) |
+| [`deploy/podman/*.container`](../deploy/podman/) | Optional Quadlet units |
 | [`docker-compose.yml`](../docker-compose.yml) | Compose for Podman/Docker |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | TLS, firewall, capacity |
 | [WORKERS.md](WORKERS.md) | Multi-host workers |

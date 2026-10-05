@@ -12,7 +12,7 @@ Built with **React 19**, **React Router 7**, and **Vite 7**. In production the o
 | Build | `npm run build -w web` | Typecheck + Vite production build |
 | Preview | `npm run preview -w web` | Serve the production build locally |
 
-Prefer `npm run dev` from the **repo root** so the API and UI start together.
+Prefer `npm run dev` from the **repo root** so the API and UI start together (Node.js **26+**).
 
 ## Dev proxy
 
@@ -22,7 +22,8 @@ Prefer `npm run dev` from the **repo root** so the API and UI start together.
 - `/session/:id/view/*` (including WebSocket) → API  
 - `/session/:id` (no `/view`) stays on Vite so the SPA shell loads
 
-Cookies and CSRF work same-origin through the proxy.
+Cookies and CSRF work same-origin through the proxy. (Logo at `/branding/logo` is served by the orchestrator; in production the SPA and API share an origin.)
+
 
 ## Source layout
 
@@ -31,14 +32,14 @@ src/
   main.tsx          # Bootstrap
   App.tsx           # Routes + auth gate
   api.ts            # Typed fetch client + CSRF
-  Shell.tsx         # Shared chrome
+  Shell.tsx         # Shared chrome (incl. theme)
   styles.css
   pages/
     Login.tsx
     Dashboard.tsx
     Session.tsx
     Admin.tsx
-    admin/          # Admin feature tabs
+    admin/          # Admin feature tabs (settings, branding, workers, …)
   viewer/           # Custom Neko WebRTC client
   SessionFiles.tsx  # Optional file transfer UI
 public/             # Static assets (e.g. browser logos)
@@ -64,6 +65,12 @@ All calls go through `api.ts`:
 - Uses `credentials: "include"` for the portal cookie  
 
 When you add a backend route, add a typed helper here and call it from the page.
+
+Notable UX wired to preferences / auth:
+
+- **Dark mode** — `darkMode` on `/api/me` + `PUT /api/preferences`  
+- **Change password** — when `canChangePassword` is true (local users)  
+- **Branding** — login/shell use `logoUrl`; admins upload via Admin → Settings / branding APIs  
 
 ## Viewer
 

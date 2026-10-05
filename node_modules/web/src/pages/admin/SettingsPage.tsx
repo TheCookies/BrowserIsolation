@@ -720,7 +720,7 @@ export function SettingsPage() {
     `${live.BROWSER_SHM_SIZE || "2gb"} shm`,
   ];
   const streamingStatus = [
-    (live.CAPTURE_VIDEO_CODEC || "vp8").toUpperCase(),
+    (live.CAPTURE_VIDEO_CODEC || "h264").toUpperCase(),
     live.DESKTOP_SCREEN || "1280x720@30",
     boolLabel(live.WEBRTC_ICELITE, "ICE lite", "Full ICE"),
   ];

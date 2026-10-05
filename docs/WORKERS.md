@@ -7,7 +7,7 @@ The portal (orchestrator) schedules isolated browser containers onto one or more
 | Role | Runs | Needs |
 | --- | --- | --- |
 | Orchestrator | Portal UI, auth, SQLite, session proxy | Reachability to each worker agent URL |
-| Worker | Podman/Docker + Neko containers + WebRTC ports | Client-reachable `PUBLIC_IP` and open `WEBRTC_PORT_RANGE` |
+| Worker | Same image, `RBI_ROLE=worker` + Podman/Docker + Neko + WebRTC ports | Client-reachable `PUBLIC_IP` and open `WEBRTC_PORT_RANGE` |
 
 Single-node installs keep `LOCAL_WORKER_ENABLED=true` (default): the orchestrator is also worker `local`.
 
@@ -20,38 +20,88 @@ User browser --WebRTC UDP/TCP--> Worker PUBLIC_IP:webrtcPort
 
 - Signaling and `/session/*/view` stay on the portal (cookie ACL).  
 - Media goes directly to the worker that owns the session.  
-- Do **not** expose the worker agent port to the public internet; restrict it to the orchestrator (or a private management network).
+- Do **not** expose the worker agent port to the public internet; restrict it to the orchestrator (or a private management network).  
+  (Alma `install-worker.sh` may open `8090/tcp` on the host firewall for private LAN reachability — still keep it off the public internet.)
 
 ## Worker agent
 
 | Item | Value |
 | --- | --- |
-| Entry | `orchestrator` → `npm run start:worker` / Compose profile `worker` |
+| Entry | `RBI_ROLE=worker` → `dist/worker-main.js` (Compose profile `worker`, or `npm run start:worker`) |
 | Listen | `WORKER_PORT` (default `8090`) |
-| Auth | `Authorization: Bearer <WORKER_TOKEN>` on `/v1/*` except `/v1/health` |
+| Auth | `Authorization: Bearer <token>` on `/v1/*` except `/v1/health` |
 
 Required env on each browser host:
 
 | Variable | Purpose |
 | --- | --- |
-| `WORKER_TOKEN` | Shared secret with the orchestrator |
-| `WORKER_ID` | Stable id shown in Admin (e.g. `edge-1`) |
+| `RBI_ROLE` | Must be `worker` for the agent entrypoint |
+| `WORKER_ENROLL_TOKEN` | Shared enroll + agent Bearer for this deployment (preferred) |
+| `WORKER_TOKEN` | Legacy fallback if enroll token unset |
+| `WORKER_ID` | Stable id shown in Admin (installer derives from hostname) |
+| `ORCHESTRATOR_URL` | Portal base URL used for enroll (e.g. `http://10.0.0.2:8080`) |
+| `WORKER_BASE_URL` | How the portal reaches this agent (installer sets from host IP + port) |
 | `PUBLIC_IP` | ICE / NAT1TO1 address clients use for WebRTC to **this** host |
-| `WEBRTC_PORT_RANGE` | Mux ports published on this host |
-| Docker socket | Create/destroy Neko containers |
-| `neko-policies` | Compose mounts the repo policies directory read-only |
+| `WEBRTC_PORT_RANGE` | Mux ports on this host |
+| `BROWSER_NETWORK_MODE` | Use `host` on Alma installers |
+| `DOCKER_SOCKET` | `/run/podman/podman.sock` on Alma |
+| Policies | Baked into the image under `orchestrator/neko-policies/` |
 
 Agent implementation: `orchestrator/src/worker-main.ts` + `worker-agent/app.ts`.  
 API inventory: [API.md](API.md#worker-agent-v1).
 
-## Compose on a browser host
+## Self-enrollment (recommended)
 
-Prefer Quadlet on production hosts: [PODMAN.md](PODMAN.md) Part C.
+On a new Alma/RHEL worker host:
+
+```bash
+sudo bash deploy/podman/install-worker.sh
+# Prompt: Orchestrator host or URL  →  e.g. 10.0.0.2  or  http://rbi.example.com:8080
+
+# Non-interactive:
+ORCHESTRATOR=10.0.0.2 sudo -E bash deploy/podman/install-worker.sh
+
+# From GHCR:
+sudo podman run --rm --entrypoint cat \
+  ghcr.io/thecookies/browserisolation:latest /deploy/install-worker.sh | sudo bash
+```
+
+The installer:
+
+1. Installs Podman, fixes `podman.socket`, logs into GHCR, pulls the **app** image  
+2. Writes `/etc/browser-isolation/.env` for the worker role  
+3. Starts `browser-isolation-worker` (host network + socket)  
+4. Calls `POST /api/workers/enroll` → status **Pending**  
+5. Does **not** pull Neko browser images
+
+Orchestrator requirement: same enroll secret in portal `.env`:
+
+```bash
+WORKER_ENROLL_TOKEN=…   # install-orchestrator / entrypoint write this on first boot
+```
+
+That same value is the **worker agent Bearer token** for every host. Enroll registers URL/IP/id only — it does **not** mint a per-worker random secret.
+
+Then open **Admin → Workers** and click **Authorize**. After authorize, the orchestrator pulls **enabled** Neko images onto that host. Use **Deauthorize** to stop scheduling without deleting the row.
+
+| Status | Meaning |
+| --- | --- |
+| Pending | Enrolled, not yet authorized (`enabled=false`, never seen) |
+| Online / Offline | Authorized; heartbeat within / outside ~45s |
+| Deauthorized | Previously seen, then disabled |
+
+Re-running `install-worker.sh` refreshes URL/IP and the worker **auto-enrolls again on startup**. Prior authorization is remembered in `worker_grants` (even if the worker row was removed), so you should not need to click Authorize again unless an admin previously Deauthorized that worker id.
+
+API: `POST /api/workers/enroll` with `Authorization: Bearer <WORKER_ENROLL_TOKEN>` (CSRF exempt).
+
+## Compose on a browser host (laptop / lab)
+
+Prefer Alma install scripts in production. For Compose:
 
 ```bash
 # In .env on that host:
 WORKER_ID=edge1
-WORKER_TOKEN=replace-me-with-a-long-secret
+WORKER_TOKEN=replace-me-with-a-long-secret   # or WORKER_ENROLL_TOKEN=
 PUBLIC_IP=10.0.0.5          # client-reachable
 WORKER_PORT=8090
 WEBRTC_PORT_RANGE=52000-52099
@@ -61,39 +111,7 @@ podman compose --profile worker up -d worker
 # Docker: CONTAINER_SOCKET=/var/run/docker.sock docker compose --profile worker up -d worker
 ```
 
-The `worker` service publishes `52000-52099` UDP+TCP by default. Edit the Compose port mappings if your range differs.
-
-## Self-enrollment (recommended)
-
-On a new Alma/RHEL worker host, run the bootstrap script. It asks **only** for the orchestrator host/IP, then installs Podman, logs into GHCR, pulls images, starts the worker agent, and registers itself as **Pending**.
-
-```bash
-sudo podman run --rm --entrypoint cat \
-  ghcr.io/thecookies/browserisolation:latest /deploy/install-worker.sh | sudo bash
-# Prompt: Orchestrator host or URL  →  e.g. 10.0.0.2  or  http://rbi.example.com:8080
-```
-
-Orchestrator requirement: set the same enroll secret as the script:
-
-```bash
-WORKER_ENROLL_TOKEN=rbi_enroll_k9m2Vx7Qp4Hs8nWc3YfL6tZa1Bd0EgR5
-```
-
-(Fresh installs via `deploy/podman/install.sh` / first-boot entrypoint already include this value.)
-
-That same value is the **worker agent Bearer token** for every host. Enroll registers URL/IP/id only — it does **not** mint a per-worker random secret (those used to desync after delete/reinstall).
-
-Then open **Admin → Workers** and click **Authorize**. Use **Deauthorize** to stop scheduling without deleting the row.
-
-| Status | Meaning |
-| --- | --- |
-| Pending | Enrolled, not yet authorized (`enabled=false`, never seen) |
-| Online / Offline | Authorized; heartbeat within / outside ~45s |
-| Deauthorized | Previously seen, then disabled |
-
-Re-running `install-worker.sh` refreshes URL/IP and the worker **auto-enrolls again on startup**. Prior authorization is remembered (even if the worker row was removed), so you should not need to click Authorize again unless an admin previously Deauthorized that worker id.
-
-API: `POST /api/workers/enroll` with `Authorization: Bearer <WORKER_ENROLL_TOKEN>`.
+The `worker` service publishes `52000-52099` UDP+TCP by default.
 
 ## Manual / env registration (deprecated fallback)
 
@@ -104,7 +122,7 @@ WORKERS=edge1|http://10.0.0.5:8090|10.0.0.5|replace-me-with-a-long-secret
 LOCAL_WORKER_ENABLED=false   # optional: control-plane-only portal
 ```
 
-**Or Admin → Workers → Add worker** with the same fields (`id`, agent URL, public IP, token). This form is deprecated in favor of `install-worker.sh` and will be removed in a later version.
+**Or Admin → Workers → Add worker** with the same fields (`id`, agent URL, public IP, token). Prefer `install-worker.sh`; the form is kept as a fallback.
 
 The orchestrator polls `GET /v1/status` every **15s**. Workers with a fresh heartbeat (within ~45s) show as **online**.
 
@@ -130,7 +148,7 @@ Persistent profiles **stick** to the worker that first created the volume. Delet
 ## Operational tips
 
 - Each host needs its **own** free WebRTC port range large enough for peak concurrent sessions on that host.  
-- Image pulls: **Admin → Browsers → Pull latest** fans out to workers.  
+- Image pulls: **Admin → Browsers → Pull latest** fans out to authorized workers; authorize also triggers pulls of enabled browsers.  
 - Host metrics: **Admin → Workers → status** (`GET /api/admin/workers/:id/status`).  
 - If a worker disappears, existing sessions on it become unreachable until the container host returns; the reaper still applies idle/max-age rules from the portal’s point of view (viewer count drops when the proxy cannot stay up).
 
@@ -138,8 +156,9 @@ Persistent profiles **stick** to the worker that first created the volume. Delet
 
 | Path | Role |
 | --- | --- |
-| `orchestrator/src/workers/store.ts` | SQLite `workers` + `profile_placements` |
+| `orchestrator/src/workers/store.ts` | SQLite `workers` + `profile_placements` + `worker_grants` |
 | `orchestrator/src/workers/client.ts` | HTTP client to `/v1` |
 | `orchestrator/src/workers/placement.ts` | Create/remove/proxy abstraction |
 | `orchestrator/src/workers/scheduler.ts` | Pick + poller + online TTL |
-| `docker-compose.yml` / `deploy/podman/` | `worker` profile or worker Quadlet |
+| `deploy/podman/install-worker.sh` | Canonical Alma worker bootstrap |
+| `docker-compose.yml` | Compose `worker` profile for labs |

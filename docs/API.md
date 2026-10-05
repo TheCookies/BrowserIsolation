@@ -15,7 +15,7 @@ Base URL examples assume the portal on `http://localhost:8080`.
 | --- | --- |
 | Auth | Cookie `rbi_session` → `request.authUser` |
 | CSRF | Header `X-CSRF-Token` on `POST`/`PUT`/`PATCH`/`DELETE` under `/api/*` |
-| CSRF exempt | `POST /api/auth/saml/acs` only |
+| CSRF exempt | `POST /api/auth/saml/acs`, `POST /api/workers/enroll` |
 | Errors | JSON `{ "error": "<code>" }` with appropriate HTTP status |
 | Health | `GET /api/health` → `{ "ok": true }` (no auth) |
 
@@ -37,7 +37,10 @@ CSRF sources:
 | POST | `/api/auth/saml/acs` | No | Exempt | SAML assertion consumer |
 | GET | `/saml/metadata` | No | — | SP metadata XML |
 | POST | `/api/auth/logout` | Yes | Yes | End portal session; destroy browser |
-| GET | `/api/me` | Yes | — | Current user + preferences + CSRF |
+| POST | `/api/auth/password` | Yes | Yes | Change own local password `{ currentPassword, newPassword }` |
+| GET | `/api/me` | Yes | — | Current user + preferences + CSRF + `canChangePassword` / `darkMode` / `logoUrl` |
+
+`GET /api/me` includes (among other fields): `username`, `role`, `subjectId`, `csrfToken`, `persistProfile`, `persistProfilesEnabled`, `darkMode`, `canChangePassword`, `logoUrl`.
 
 ---
 
@@ -76,16 +79,29 @@ WebSocket URL (same origin): `{wsPath}?username=rbi&password=…` (see `web/src/
 
 | Method | Path | Auth | CSRF | Purpose |
 | --- | --- | --- | --- | --- |
-| GET | `/api/preferences` | Yes | — | Persist-profile flags |
-| PUT | `/api/preferences` | Yes | Yes | `{ "persistProfile": boolean }` |
+| GET | `/api/preferences` | Yes | — | `{ persistProfile, darkMode }` |
+| PUT | `/api/preferences` | Yes | Yes | `{ "persistProfile"?: boolean, "darkMode"?: boolean }` |
 
-Applies on the **next** launch. See [USER_IDENTITY.md](USER_IDENTITY.md).
+`persistProfile` applies on the **next** launch. `darkMode` applies immediately in the SPA. See [USER_IDENTITY.md](USER_IDENTITY.md).
+
+---
+
+## Branding
+
+| Method | Path | Auth | CSRF | Purpose |
+| --- | --- | --- | --- | --- |
+| GET | `/branding/logo` | No | — | Serve uploaded logo bytes (cache-busted via `?v=`) |
+| GET | `/api/admin/branding` | Admin | — | Logo metadata |
+| PUT | `/api/admin/branding/logo` | Admin | Yes | Upload logo (data URL / base64 body) |
+| DELETE | `/api/admin/branding/logo` | Admin | Yes | Remove logo |
+
+Logo files live under `{dirname(DATABASE_PATH)}/branding/`.
 
 ---
 
 ## Admin
 
-All routes require `role === "admin"`.
+All routes require `role === "admin"` unless noted.
 
 ### Sessions & audit
 

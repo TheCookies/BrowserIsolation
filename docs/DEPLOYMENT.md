@@ -2,23 +2,24 @@
 
 How to run Browser Isolation in production (or anything beyond a laptop).
 
-**Production recommendation:** Podman + GHCR image + self-bootstrapping `podman run --network=host` (host-mounted `/config/.env`).
+**Production recommendation:** Alma/RHEL + Podman + GHCR image via **`install-orchestrator.sh`** (`--network=host`, host-mounted `/config/.env`, Podman socket at `/run/podman/podman.sock`).
 
 - Exact Alma Linux checklist: **[SETUP_GHCR_ALMA.md](SETUP_GHCR_ALMA.md)**
+- Installer index: **[../deploy/podman/README.md](../deploy/podman/README.md)**
 - Background / reference: **[PODMAN.md](PODMAN.md)**
 
 ## Recommended topology
 
 **Single host (default)**
 
-- One orchestrator service (`LOCAL_WORKER_ENABLED=true`)  
-- Container engine socket mounted (Podman or Docker); WebRTC ports published on the host (or DNAT)  
+- One orchestrator container (`LOCAL_WORKER_ENABLED=true`, `RBI_ROLE=orchestrator`)  
+- Podman socket mounted; `BROWSER_NETWORK_MODE=host` on Alma  
 - Optional reverse proxy for TLS on `443`
 
 **Split control / data plane**
 
-- Portal host: orchestrator only (`LOCAL_WORKER_ENABLED=false`)  
-- One or more browser hosts: worker profile / worker Quadlet  
+- Portal host: orchestrator (`install-orchestrator.sh`; optionally `LOCAL_WORKER_ENABLED=false`)  
+- Browser hosts: `install-worker.sh` → enroll → **Admin → Authorize**  
 - Clients → portal (HTTPS); clients → each worker `PUBLIC_IP` for WebRTC  
 - Orchestrator → worker agents on a private network  
 
@@ -28,10 +29,20 @@ See [WORKERS.md](WORKERS.md).
 
 ## Podman + GHCR (recommended)
 
-1. Push to `main` so Actions publishes `ghcr.io/thecookies/browserisolation:latest`.  
-2. On the host: enable `podman.socket`, `podman login --authfile /etc/containers/auth.json`, then `podman run --network=host` with `/config`, data, and socket mounts.  
+1. Push to `main` so Actions publishes `ghcr.io/thecookies/browserisolation:latest` (Node 26 image).  
+2. On the host: `sudo bash install-orchestrator.sh` (or pipe the script from the image).  
 
 Full steps: [SETUP_GHCR_ALMA.md](SETUP_GHCR_ALMA.md) · [PODMAN.md](PODMAN.md).
+
+Installer defaults worth remembering:
+
+| Setting | Value |
+| --- | --- |
+| Admin password (first `.env` only) | `BrowserIsolation-Admin1` → also `/etc/browser-isolation/admin-password.txt` |
+| Network | `--network=host`, `BROWSER_NETWORK_MODE=host` |
+| Socket | `/run/podman/podman.sock` both sides |
+| Privileges | `--privileged` + `label=disable` |
+| Enroll secret | `WORKER_ENROLL_TOKEN` written into orchestrator `.env` |
 
 ---
 
@@ -50,7 +61,8 @@ podman compose up -d --build
 
 Healthcheck hits `GET /api/health` inside the container.
 
-Data persists on volume `rbi-data` → `/data/rbi.sqlite`.
+Data persists on volume `rbi-data` → `/data/rbi.sqlite`. Compose typically uses **bridge** networking (`BROWSER_NETWORK_MODE` default `bridge`); Alma installers force **host**.
+
 ---
 
 ## Firewall / security groups
@@ -126,6 +138,7 @@ Keep publishing (or DNATing) the WebRTC UDP/TCP range on the browser host(s).
 | `WEBRTC_ICELITE=true` | Default; matches single published mux port |
 | `ICE_SERVERS_*` | JSON arrays of `RTCIceServer`; set when you add TURN |
 | TURN | Requires `WEBRTC_ICELITE=false` and real TURN credentials |
+| `BROWSER_NETWORK_MODE=host` | Required on many Alma / Hyper-V setups so published ports are reachable |
 
 If users are behind strict NAT and direct UDP fails, deploy TURN and configure both frontend and backend ICE server lists (see `.env.example`).
 
@@ -148,14 +161,14 @@ Admin → Settings can override most of these without redeploying (except infras
 
 ## Security checklist
 
-- [ ] Change default `admin` / `user` passwords (or delete seed users) after first login  
+- [ ] Change default `admin` password after first login (installer default is `BrowserIsolation-Admin1`)  
 - [ ] `COOKIE_SECURE=true` and HTTPS in production  
 - [ ] `TRUST_PROXY=true` only behind a proxy you control  
 - [ ] Keep `ALLOW_CLIPBOARD` / `ALLOW_DOWNLOADS` off unless required  
-- [ ] Do not expose Docker socket or worker agent ports publicly  
+- [ ] Do not expose Podman/Docker socket or worker agent ports publicly  
+- [ ] Treat install-script GHCR credentials and `WORKER_ENROLL_TOKEN` as cluster secrets; rotate if leaked  
 - [ ] Restrict who has `admin` role; prefer SAML + `SAML_ADMIN_GROUP` when using SSO  
-- [ ] Rotate `WORKER_TOKEN` if it leaks; treat it like a cluster secret  
-- [ ] Back up `/data/rbi.sqlite` (and decide whether profile volumes are in scope)
+- [ ] Back up `/data/rbi.sqlite` (and decide whether profile volumes / branding files are in scope)
 
 ---
 
@@ -177,12 +190,20 @@ Details: [USER_IDENTITY.md](USER_IDENTITY.md).
 
 ## Upgrades
 
-**GHCR host (`podman run`)**
+**GHCR Alma host (preferred)**
+
+```bash
+sudo bash install-orchestrator.sh
+# workers:
+sudo bash install-worker.sh
+```
+
+**Manual `podman run`**
 
 ```bash
 sudo podman pull --authfile /etc/containers/auth.json ghcr.io/thecookies/browserisolation:latest
 sudo podman rm -f browser-isolation
-# re-run the same podman run (or sudo bash deploy/podman/run.sh --no-pull)
+# re-run the same podman run flags as SETUP_GHCR_ALMA.md
 ```
 
 **Compose from a git checkout**
@@ -200,7 +221,7 @@ On start the orchestrator:
 3. Reconciles managed containers with `browser_sessions`  
 4. Starts the reaper and worker poller  
 
-Neko image tags: set `NEKO_IMAGE_TAG` or use **Admin → Browsers → Pull latest**.
+Neko image tags: set `NEKO_IMAGE_TAG` or use **Admin → Browsers → Pull latest** (fans out to authorized workers).
 
 ---
 
@@ -219,10 +240,11 @@ There is no separate metrics exporter yet; scrape logs or poll admin APIs if you
 
 | Symptom | Likely cause |
 | --- | --- |
-| Black / stuck stream | Wrong `PUBLIC_IP`, firewall blocking WebRTC UDP/TCP, ICE lite vs TURN mismatch |
+| Black / stuck stream | Wrong `PUBLIC_IP`, firewall blocking WebRTC UDP/TCP, ICE lite vs TURN mismatch, need `BROWSER_NETWORK_MODE=host` |
 | Works on server, not remote client | `PUBLIC_IP=127.0.0.1` |
 | Login cookie lost | `COOKIE_SECURE=true` on HTTP, or proxy not forwarding proto |
-| First launch slow | Image not pulled; run prepull profile |
+| First launch slow | Neko image not pulled; use Admin → Browsers → Pull latest or `podman pull ghcr.io/m1k1o/neko/…` |
 | `webrtc_port_pool_exhausted` | Too many sessions for range; widen range + publish ports |
-| Worker always offline | Orchestrator cannot reach agent URL; token mismatch; firewall |
+| Worker always offline | Orchestrator cannot reach agent URL; enroll/token mismatch; firewall |
+| Socket / create browser fails | Socket path mismatch (`/run/podman/podman.sock`); missing `--privileged` |
 | Profile “lost” after SSO | Different `subjectId` (`local:` vs `saml:`) — see USER_IDENTITY.md |

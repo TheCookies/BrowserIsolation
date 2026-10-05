@@ -11,17 +11,19 @@ This repo is an npm workspaces monorepo:
 
 Isolated browsers are [Neko](https://neko.m1k1o.net/) containers (`ghcr.io/m1k1o/neko/*`).
 
+Runtime: **Node.js 26+** (Docker image `node:26-bookworm-slim`).
+
 ---
 
 ## New here? Start with this
 
 1. **[Quick start](#quick-start)** — get a stack running in minutes  
 2. **Pretty HTML docs** — open [`docs/site/index.html`](docs/site/index.html) in a browser, or run `npm run docs:serve`  
-3. **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — how the pieces fit together  
+3. **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — how the pieces fit together (roles, data flow, config)  
 4. **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** — local loop, tests, where to change code  
 5. **[docs/API.md](docs/API.md)** — HTTP/WebSocket surface  
 6. **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** — production, TLS, firewall, multi-host  
-7. **[docs/PODMAN.md](docs/PODMAN.md)** — GHCR publish + Podman remote auto-deploy  
+7. **[docs/SETUP_GHCR_ALMA.md](docs/SETUP_GHCR_ALMA.md)** — Alma blank-box install (GHCR + install scripts)  
 8. **[docs/PLAN.md](docs/PLAN.md)** — what is built and what is next  
 
 Full markdown index: **[docs/README.md](docs/README.md)**. Regenerate the HTML site after doc edits with `npm run docs`.
@@ -33,10 +35,10 @@ Full markdown index: **[docs/README.md](docs/README.md)**. Regenerate the HTML s
 - Local username/password auth (SQLite), with optional **SAML 2.0** SSO  
 - One isolated browser session per user (Chrome, Firefox, Brave, and the rest of the Neko catalog)  
 - Custom WebRTC viewer (signaling proxied through the portal; media to the host mux ports)  
-- Admin: join/terminate sessions, users, browsers, settings, profile volumes, workers, audit log  
-- Idle reaper + max session lifetime; restart reconciliation of Docker vs SQLite  
-- Optional **multi-host workers** so browsers run on edge machines while one portal stays the control plane  
-- Optional **persistent profiles** keyed by stable `subjectId` (SAML-ready) — see [docs/USER_IDENTITY.md](docs/USER_IDENTITY.md)
+- Admin: join/terminate sessions, users, browsers, settings, branding, profile volumes, workers, audit log  
+- Idle reaper + max session lifetime; restart reconciliation of containers vs SQLite  
+- Optional **multi-host workers** (self-enroll + Authorize) so browsers run on edge machines while one portal stays the control plane  
+- Optional **persistent profiles** keyed by stable `subjectId` — see [docs/USER_IDENTITY.md](docs/USER_IDENTITY.md)
 
 ---
 
@@ -71,6 +73,8 @@ Open **http://localhost:8080**.
 Sign in → pick a browser → **Launch**. The orchestrator starts a Neko container on the `rbi-browsers` network and proxies `/session/:id/view/*` after an ownership check (admins may open any session).
 
 **Disconnect** on a session destroys your container. Portal **Log out** does the same. Admins use **Admin** to list sessions, **Join**, or **Terminate**; those actions are audited.
+
+Alma production default password (install script) is different — see [SETUP_GHCR_ALMA.md](docs/SETUP_GHCR_ALMA.md).
 
 ---
 
@@ -108,12 +112,12 @@ BrowserIsolation/
 │   └── neko-policies/     # Managed browser policies injected into Neko
 ├── web/                   # React + Vite SPA + WebRTC viewer
 ├── docs/                  # Architecture, API, deploy, plans
-├── deploy/podman/         # Quadlet units for remote auto-start
+├── deploy/podman/         # Alma install scripts, entrypoint, optional Quadlet
 ├── data/                  # Local SQLite (gitignored)
 ├── docker-compose.yml
-├── Dockerfile
+├── Dockerfile             # node:26 multi-stage; ENTRYPOINT entrypoint.sh
 ├── .env.example           # Every config knob documented here
-└── package.json           # npm workspaces root
+└── package.json           # npm workspaces root (engines.node >=26)
 ```
 
 ---
@@ -122,7 +126,9 @@ BrowserIsolation/
 
 Every variable is documented in [`.env.example`](.env.example).
 
-Most operational settings can also be changed in **Admin → Settings** (stored in SQLite and layered on top of `.env`). Infrastructure keys such as `PORT`, `DATABASE_PATH`, `DOCKER_SOCKET`, `BROWSER_NETWORK`, and `WEBRTC_PORT_RANGE` stay read-only.
+Most operational settings can also be changed in **Admin → Settings** (stored in SQLite and layered on top of `.env`). Infrastructure keys such as `PORT`, `DATABASE_PATH`, `DOCKER_SOCKET`, `BROWSER_NETWORK`, `BROWSER_NETWORK_MODE`, and `WEBRTC_PORT_RANGE` stay read-only.
+
+On Alma, the host file `/etc/browser-isolation/.env` is mounted at `/config/.env` and **wins** over any image defaults.
 
 **Must-set for real use**
 
@@ -130,7 +136,8 @@ Most operational settings can also be changed in **Admin → Settings** (stored 
 | --- | --- |
 | `PUBLIC_IP` | Advertised in WebRTC ICE candidates; clients must reach this address |
 | `COOKIE_SECURE` / `TRUST_PROXY` | `true` behind HTTPS reverse proxy |
-| `WORKER_TOKEN` / `WORKERS` | Only when using remote browser hosts |
+| `WORKER_ENROLL_TOKEN` | Shared enroll + agent Bearer when using remote browser hosts |
+| `WORKER_TOKEN` / `WORKERS` | Legacy fallback only |
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for firewall ports, TLS, TURN, and multi-host.
 
@@ -140,10 +147,14 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for firewall ports, TLS, TURN, and 
 
 One portal schedules Neko containers onto the local engine and/or remote **worker agents**. Signaling stays on the portal; WebRTC media goes to the worker’s `PUBLIC_IP`.
 
-Guide: **[docs/WORKERS.md](docs/WORKERS.md)**. Podman remote units: **[docs/PODMAN.md](docs/PODMAN.md)**.
+Guide: **[docs/WORKERS.md](docs/WORKERS.md)**. Alma install: **[docs/SETUP_GHCR_ALMA.md](docs/SETUP_GHCR_ALMA.md)** · **[deploy/podman/README.md](deploy/podman/README.md)**.
 
 ```bash
-# On a browser host (after setting WORKER_ID, WORKER_TOKEN, PUBLIC_IP):
+# On a browser host:
+sudo bash deploy/podman/install-worker.sh
+# Then Admin → Workers → Authorize
+
+# Lab / Compose alternative:
 podman compose --profile worker up -d worker
 ```
 
@@ -155,12 +166,14 @@ podman compose --profile worker up -d worker
 | --- | --- |
 | [docs/site/index.html](docs/site/index.html) | Pretty HTML docs (run `npm run docs:serve`) |
 | [docs/README.md](docs/README.md) | Index of all documentation |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, data flow, modules |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, roles, data flow, modules |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Dev setup, tests, coding map |
 | [docs/API.md](docs/API.md) | Portal + worker HTTP APIs |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Compose, TLS, firewall, ops |
-| [docs/PODMAN.md](docs/PODMAN.md) | GHCR + Podman Quadlet remote deploy |
-| [docs/WORKERS.md](docs/WORKERS.md) | Multi-host placement |
+| [docs/SETUP_GHCR_ALMA.md](docs/SETUP_GHCR_ALMA.md) | Alma blank-box GHCR deploy |
+| [docs/PODMAN.md](docs/PODMAN.md) | GHCR publish + Podman reference |
+| [deploy/podman/README.md](deploy/podman/README.md) | Install script index |
+| [docs/WORKERS.md](docs/WORKERS.md) | Multi-host placement + enroll |
 | [docs/USER_IDENTITY.md](docs/USER_IDENTITY.md) | `subjectId`, profiles, SAML |
 | [docs/SECURITY.md](docs/SECURITY.md) | Threat model and hardening |
 | [docs/PLAN.md](docs/PLAN.md) | Product phases and roadmap |

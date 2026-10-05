@@ -15,65 +15,78 @@ same storage model. For the full doc set, see [README.md](README.md).
 **Rule:** preferences and Docker volumes are keyed by `subjectId` (via
 `profileStorageKey`), never by display username alone.
 
-## Local auth (current)
+## Local auth
 
 Local accounts live in SQLite (`local_users`), not permanently in `.env`.
 
 1. On first boot with an empty `local_users` table, `AUTH_USERS` seeds the database.
 2. After that, manage users in **Admin → Users** (add / role / reset password / delete).
-3. `orchestrator/src/auth/local-provider.ts` authenticates against the DB and returns:
+3. Local users can change their own password via `POST /api/auth/password` when `canChangePassword` is true on `/api/me`.
+4. `orchestrator/src/auth/local-provider.ts` authenticates against the DB and returns:
 
 ```ts
 { username, role, subjectId } // subjectId is local:<username>
 ```
 
-Helpers live in `orchestrator/src/auth/identity.ts`. When SAML is added, keep this local
-store as an optional break-glass admin path or disable it via config.
+Helpers live in `orchestrator/src/auth/identity.ts`. Keep the local store as an
+optional break-glass admin path when SAML is enabled, or disable it via config later.
+
+## Preferences
+
+Stored in SQLite `user_preferences` per `subject_id`:
+
+| Field | Purpose |
+| --- | --- |
+| `persist_profile` | Mount a named volume on next browser launch |
+| `dark_mode` | SPA theme preference |
+
+API: `GET` / `PUT /api/preferences` with `{ persistProfile?, darkMode? }`.
 
 ## Persistent profiles
 
 1. Admin enables the feature with `PERSIST_PROFILES_ENABLED=true` (default).
 2. Each user may opt in via **Dashboard → Persist browser settings** (`PUT /api/preferences`).
-3. Preference is stored in SQLite `user_preferences.subject_id`.
-4. On launch with persistence on, the orchestrator mounts a **Docker named volume**:
+3. On launch with persistence on, the orchestrator mounts a **named volume**:
 
    ```text
-   rbi-profile-<profileStorageKey>-<browser>
+   rbi-profile-<profileStorageKey>-<browserId>
    ```
 
-   Examples:
+   Examples (browser ids match `neko-browsers.ts`):
 
-   - `rbi-profile-<hash>-chrome`
+   - `rbi-profile-<hash>-google-chrome`
    - `rbi-profile-<hash>-firefox`
    - `rbi-profile-<hash>-brave`
 
-5. Volume target paths inside Neko containers (see Neko browser docs):
+4. Volume target paths inside Neko containers:
 
-   | Browser | Container path |
+   | Browser id | Container path |
    | --- | --- |
-   | chrome | `/home/neko/.config/google-chrome` |
-   | brave | `/home/neko/.config/brave` |
-   | firefox | `/home/neko/.mozilla/firefox/profile.default` |
+   | `google-chrome` | `/home/neko/.config/google-chrome` |
+   | `brave` | `/home/neko/.config/brave` |
+   | `firefox` | `/home/neko/.mozilla/firefox/profile.default` |
 
-6. Persist-mode also uses `orchestrator/neko-policies/<browser>/policies.persist.json`
+5. Persist-mode also uses `orchestrator/neko-policies/<browser>/policies.persist.json`
    so cookies/session data are not wiped on browser exit.
 
 Turning persistence **off** does not delete volumes (data remains if the user
 opts back in). Destroying a browser session removes the container only, not the
-profile volume.
+profile volume. Multi-host: volumes stick to the worker recorded in
+`profile_placements` (see [WORKERS.md](WORKERS.md)).
 
 ### Inspecting volumes
 
 ```bash
-docker volume ls --filter label=rbi.managed=true
-docker volume inspect rbi-profile-<key>-chrome
+podman volume ls --filter label=rbi.managed=true
+podman volume inspect rbi-profile-<key>-google-chrome
+# Docker Engine: docker volume …
 ```
 
 Labels on each volume:
 
 - `rbi.managed=true`
 - `rbi.subject_key=<profileStorageKey>`
-- `rbi.browser=<chrome|firefox|brave>`
+- `rbi.browser=<google-chrome|firefox|brave|…>`
 
 ## SAML / SSO (implemented)
 
@@ -97,13 +110,14 @@ Implementation lives in `orchestrator/src/auth/saml.ts` and auth routes.
 | --- | --- | --- |
 | `GET` | `/api/auth/methods` | `{ local, saml }` for the login page |
 | `GET` | `/api/auth/saml/login` | Redirects to the IdP |
-| `POST` | `/api/auth/saml/acs` | Assertion consumer (IdP POST) |
+| `POST` | `/api/auth/saml/acs` | Assertion consumer (IdP POST; CSRF exempt) |
 | `GET` | `/saml/metadata` | SP metadata XML |
 
 Local username/password login remains available as break-glass. First SSO
 sign-in auto-provisions as `user` unless `SAML_ADMIN_GROUP` matches; SAML users
 are **not** inserted into `local_users` (Admin → Users stays local-only).
-Preferences and profile volumes still key on `subjectId` (`saml:…`).
+`canChangePassword` is false for SAML subjects. Preferences and profile volumes
+still key on `subjectId` (`saml:…`).
 
 Existing `local:…` profile volumes are not renamed automatically when the same
 people later sign in via SAML — keep legacy rows or run a one-off copy/rename
@@ -113,9 +127,10 @@ using recomputed `profileStorageKey` values.
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| `GET` | `/api/me` | Includes `subjectId`, `persistProfile`, `persistProfilesEnabled` |
-| `GET` | `/api/preferences` | Current user's persist flag |
-| `PUT` | `/api/preferences` | Body `{ "persistProfile": boolean }` |
+| `GET` | `/api/me` | Includes `subjectId`, `persistProfile`, `darkMode`, `canChangePassword`, … |
+| `GET` | `/api/preferences` | Current user's persist + dark-mode flags |
+| `PUT` | `/api/preferences` | Body `{ "persistProfile"?: boolean, "darkMode"?: boolean }` |
+| `POST` | `/api/auth/password` | Local users only |
 
-Preference changes apply on the **next** browser launch (disconnect + launch
-again if a session is already running).
+Preference changes for profiles apply on the **next** browser launch (disconnect +
+launch again if a session is already running).

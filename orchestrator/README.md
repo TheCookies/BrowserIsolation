@@ -2,6 +2,8 @@
 
 Fastify control plane for Browser Isolation: authentication, SQLite state, Neko container lifecycle, session proxy, admin APIs, and optional **worker agent**.
 
+Requires **Node.js 26+** (see root `package.json` `engines`).
+
 ## Scripts
 
 | Script | Command | Purpose |
@@ -24,15 +26,18 @@ From the repo root, `npm run dev` / `npm test` / `npm start` already target this
 | `src/app.ts` | Fastify app factory for the portal |
 | `src/worker-agent/app.ts` | Fastify app factory for the agent |
 
+In the published image, `deploy/podman/entrypoint.sh` chooses portal vs worker via `RBI_ROLE=orchestrator|worker`.
+
 ## Source layout
 
 ```text
 src/
   auth/           # Local + SAML + subjectId helpers
   docker/         # dockerode runtime, labels, policies, profiles
-  routes/         # Portal HTTP handlers
-  workers/        # Placement, poller, remote client, port pool (memory)
+  routes/         # Portal HTTP handlers (incl. branding)
+  workers/        # Placement, poller, remote client, enroll grants
   worker-agent/   # Remote host API
+  branding-store.ts
   *.ts            # app, config, db, lifecycle, proxy, stores, …
 neko-policies/    # Policy JSON trees injected into containers
 test/             # Unit + optional integration tests
@@ -48,18 +53,30 @@ test/             # Unit + optional integration tests
 
 ## Config
 
-Loaded from the **repo-root** `.env` (see `env-file.ts` + `config.ts`). Admin overrides land in SQLite via `settings-store.ts` / `settings-fields.ts`.
+Loaded from the **repo-root** `.env`, then **`/config/.env` if present** (Alma mount wins). See `env-file.ts` + `config.ts`. Admin overrides land in SQLite via `settings-store.ts` / `settings-fields.ts`.
 
-Worker-only env: `WORKER_ID`, `WORKER_TOKEN`, `WORKER_PORT` (see [../docs/WORKERS.md](../docs/WORKERS.md)).
+Worker-oriented env (see [../docs/WORKERS.md](../docs/WORKERS.md)):
+
+| Variable | Notes |
+| --- | --- |
+| `RBI_ROLE` | `worker` for agent mode in the container |
+| `WORKER_ID` | Stable id |
+| `WORKER_ENROLL_TOKEN` | Preferred Bearer + enroll secret |
+| `WORKER_TOKEN` | Legacy Bearer fallback |
+| `WORKER_PORT` | Default `8090` |
+| `ORCHESTRATOR_URL` | Enroll target |
+| `WORKER_BASE_URL` | How the portal reaches this agent |
+| `PUBLIC_IP` / `WEBRTC_PORT_RANGE` | Media plane |
+| `DOCKER_SOCKET` / `BROWSER_NETWORK_MODE` | Engine access; use `host` on Alma |
 
 ## Policies
 
-`neko-policies/<chrome|brave|firefox>/`:
+`neko-policies/<chrome|brave|firefox>/` (paths follow Neko policy layout):
 
 - `policies.json` — default (ephemeral) sessions  
 - `policies.persist.json` — when the user opted into persistent profiles  
 
-Catalog and image names: `src/neko-browsers.ts`.
+Catalog and image names: `src/neko-browsers.ts` (browser ids like `google-chrome`).
 
 ## Tests
 
@@ -68,10 +85,11 @@ npm test -w orchestrator
 RBI_INTEGRATION=1 npm test -w orchestrator -- test/integration.test.ts
 ```
 
-Prefer injecting stores/runtimes in tests (see `test/helpers.ts`) rather than hitting a live Docker daemon.
+Prefer injecting stores/runtimes in tests (see `test/helpers.ts`) rather than hitting a live container daemon.
 
 ## Further reading
 
 - [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md)  
 - [../docs/API.md](../docs/API.md)  
 - [../docs/DEVELOPMENT.md](../docs/DEVELOPMENT.md)  
+- [../docs/WORKERS.md](../docs/WORKERS.md)  

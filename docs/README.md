@@ -12,7 +12,7 @@ Rebuild after editing markdown: `npm run docs`
 ## Markdown onboarding path
 
 1. [../README.md](../README.md) — what this is and how to run it  
-2. [ARCHITECTURE.md](ARCHITECTURE.md) — system design  
+2. [ARCHITECTURE.md](ARCHITECTURE.md) — system design (roles, config, data model)  
 3. [DEVELOPMENT.md](DEVELOPMENT.md) — day-to-day coding  
 4. [API.md](API.md) — contracts you will call or extend  
 5. Package READMEs: [orchestrator](../orchestrator/README.md) · [web](../web/README.md)
@@ -21,12 +21,14 @@ Rebuild after editing markdown: `npm run docs`
 
 | Doc | When you need it |
 | --- | --- |
-| [SETUP_GHCR_ALMA.md](SETUP_GHCR_ALMA.md) | **Start here:** publish image + Alma Linux pull/auto-start |
-| [PODMAN.md](PODMAN.md) | GHCR / Podman background and reference |
+| [SETUP_GHCR_ALMA.md](SETUP_GHCR_ALMA.md) | **Start here:** publish image + Alma Linux install scripts |
+| [../deploy/podman/README.md](../deploy/podman/README.md) | Blank-box installer index (`install-orchestrator` / `install-worker`) |
+| [PODMAN.md](PODMAN.md) | GHCR / Podman background and CI reference |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Production install, TLS, firewall, TURN |
-| [WORKERS.md](WORKERS.md) | Scaling browsers across hosts |
+| [WORKERS.md](WORKERS.md) | Scaling browsers across hosts (enroll + Authorize) |
 | [USER_IDENTITY.md](USER_IDENTITY.md) | Profiles, `subjectId`, SAML |
 | [SECURITY.md](SECURITY.md) | Threat model, defaults, trust boundaries |
+
 ## Product
 
 | Doc | When you need it |
@@ -36,3 +38,7 @@ Rebuild after editing markdown: `npm run docs`
 ## Config reference
 
 All environment variables live in [../.env.example](../.env.example) with inline comments. Prefer that file over duplicating every knob here.
+
+## Mental model (one paragraph)
+
+Same container image runs as **orchestrator** (`RBI_ROLE=orchestrator`) or **worker** (`RBI_ROLE=worker`). The portal owns auth + SQLite + signaling proxy; workers own Neko containers and WebRTC ports. Push to `main` publishes `ghcr.io/thecookies/browserisolation:latest`. Alma hosts use install scripts under `deploy/podman/` with host networking and `/run/podman/podman.sock`. See [ARCHITECTURE.md](ARCHITECTURE.md) for diagrams.

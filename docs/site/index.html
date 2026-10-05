@@ -593,15 +593,16 @@ body {
 <div class="table-wrap"><table><thead><tr><th>Package</th><th>Path</th><th>Role</th></tr></thead><tbody><tr><td><strong>orchestrator</strong></td><td><a href="orchestrator/"><code>orchestrator/</code></a></td><td>Fastify API, auth, SQLite, Docker lifecycle, session proxy, optional worker agent</td></tr>
 <tr><td><strong>web</strong></td><td><a href="web/"><code>web/</code></a></td><td>React SPA (dashboard, viewer, admin)</td></tr></tbody></table></div>
 <p>Isolated browsers are <a href="https://neko.m1k1o.net/" target="_blank" rel="noopener noreferrer">Neko</a> containers (<code>ghcr.io/m1k1o/neko/*</code>).</p>
+<p>Runtime: <strong>Node.js 26+</strong> (Docker image <code>node:26-bookworm-slim</code>).</p>
 <hr />
 <h2 id="new-here-start-with-this">New here? Start with this</h2>
 <ol><li><strong><a href="#quick-start">Quick start</a></strong> — get a stack running in minutes  </li>
 <li><strong>Pretty HTML docs</strong> — open <a href="docs/site/index.html"><code>docs/site/index.html</code></a> in a browser, or run <code>npm run docs:serve</code>  </li>
-<li><strong><a href="#architecture" data-nav="architecture">docs/ARCHITECTURE.md</a></strong> — how the pieces fit together  </li>
+<li><strong><a href="#architecture" data-nav="architecture">docs/ARCHITECTURE.md</a></strong> — how the pieces fit together (roles, data flow, config)  </li>
 <li><strong><a href="#development" data-nav="development">docs/DEVELOPMENT.md</a></strong> — local loop, tests, where to change code  </li>
 <li><strong><a href="#api" data-nav="api">docs/API.md</a></strong> — HTTP/WebSocket surface  </li>
 <li><strong><a href="#deployment" data-nav="deployment">docs/DEPLOYMENT.md</a></strong> — production, TLS, firewall, multi-host  </li>
-<li><strong><a href="#podman" data-nav="podman">docs/PODMAN.md</a></strong> — GHCR publish + Podman remote auto-deploy  </li>
+<li><strong><a href="#setup-ghcr-alma" data-nav="setup-ghcr-alma">docs/SETUP_GHCR_ALMA.md</a></strong> — Alma blank-box install (GHCR + install scripts)  </li>
 <li><strong><a href="#plan" data-nav="plan">docs/PLAN.md</a></strong> — what is built and what is next  </li></ol>
 <p>Full markdown index: <strong><a href="#home" data-nav="home">docs/README.md</a></strong>. Regenerate the HTML site after doc edits with <code>npm run docs</code>.</p>
 <hr />
@@ -609,10 +610,10 @@ body {
 <ul><li>Local username/password auth (SQLite), with optional <strong>SAML 2.0</strong> SSO  </li>
 <li>One isolated browser session per user (Chrome, Firefox, Brave, and the rest of the Neko catalog)  </li>
 <li>Custom WebRTC viewer (signaling proxied through the portal; media to the host mux ports)  </li>
-<li>Admin: join/terminate sessions, users, browsers, settings, profile volumes, workers, audit log  </li>
-<li>Idle reaper + max session lifetime; restart reconciliation of Docker vs SQLite  </li>
-<li>Optional <strong>multi-host workers</strong> so browsers run on edge machines while one portal stays the control plane  </li>
-<li>Optional <strong>persistent profiles</strong> keyed by stable <code>subjectId</code> (SAML-ready) — see <a href="#identity" data-nav="identity">docs/USER_IDENTITY.md</a></li></ul>
+<li>Admin: join/terminate sessions, users, browsers, settings, branding, profile volumes, workers, audit log  </li>
+<li>Idle reaper + max session lifetime; restart reconciliation of containers vs SQLite  </li>
+<li>Optional <strong>multi-host workers</strong> (self-enroll + Authorize) so browsers run on edge machines while one portal stays the control plane  </li>
+<li>Optional <strong>persistent profiles</strong> keyed by stable <code>subjectId</code> — see <a href="#identity" data-nav="identity">docs/USER_IDENTITY.md</a></li></ul>
 <hr />
 <h2 id="prerequisites">Prerequisites</h2>
 <ul><li><strong>Podman</strong> (recommended) with Compose, or <strong>Docker</strong> + Compose v2  </li>
@@ -632,6 +633,7 @@ podman compose up --build
 <tr><td><code>user</code></td><td><code>user</code></td><td>user</td></tr></tbody></table></div>
 <p>Sign in → pick a browser → <strong>Launch</strong>. The orchestrator starts a Neko container on the <code>rbi-browsers</code> network and proxies <code>/session/:id/view/*</code> after an ownership check (admins may open any session).</p>
 <p><strong>Disconnect</strong> on a session destroys your container. Portal <strong>Log out</strong> does the same. Admins use <strong>Admin</strong> to list sessions, <strong>Join</strong>, or <strong>Terminate</strong>; those actions are audited.</p>
+<p>Alma production default password (install script) is different — see <a href="#setup-ghcr-alma" data-nav="setup-ghcr-alma">SETUP_GHCR_ALMA.md</a>.</p>
 <hr />
 <h2 id="local-development">Local development</h2>
 <pre class="code-block" data-lang="bash"><code>npm install
@@ -652,37 +654,45 @@ NODE_ENV=production npm start</code></pre>
 │   └── neko-policies/     # Managed browser policies injected into Neko
 ├── web/                   # React + Vite SPA + WebRTC viewer
 ├── docs/                  # Architecture, API, deploy, plans
-├── deploy/podman/         # Quadlet units for remote auto-start
+├── deploy/podman/         # Alma install scripts, entrypoint, optional Quadlet
 ├── data/                  # Local SQLite (gitignored)
 ├── docker-compose.yml
-├── Dockerfile
+├── Dockerfile             # node:26 multi-stage; ENTRYPOINT entrypoint.sh
 ├── .env.example           # Every config knob documented here
-└── package.json           # npm workspaces root</code></pre>
+└── package.json           # npm workspaces root (engines.node &gt;=26)</code></pre>
 <hr />
 <h2 id="configuration">Configuration</h2>
 <p>Every variable is documented in <a href=".env.example"><code>.env.example</code></a>.</p>
-<p>Most operational settings can also be changed in <strong>Admin → Settings</strong> (stored in SQLite and layered on top of <code>.env</code>). Infrastructure keys such as <code>PORT</code>, <code>DATABASE_PATH</code>, <code>DOCKER_SOCKET</code>, <code>BROWSER_NETWORK</code>, and <code>WEBRTC_PORT_RANGE</code> stay read-only.</p>
+<p>Most operational settings can also be changed in <strong>Admin → Settings</strong> (stored in SQLite and layered on top of <code>.env</code>). Infrastructure keys such as <code>PORT</code>, <code>DATABASE_PATH</code>, <code>DOCKER_SOCKET</code>, <code>BROWSER_NETWORK</code>, <code>BROWSER_NETWORK_MODE</code>, and <code>WEBRTC_PORT_RANGE</code> stay read-only.</p>
+<p>On Alma, the host file <code>/etc/browser-isolation/.env</code> is mounted at <code>/config/.env</code> and <strong>wins</strong> over any image defaults.</p>
 <p><strong>Must-set for real use</strong></p>
 <div class="table-wrap"><table><thead><tr><th>Variable</th><th>Why</th></tr></thead><tbody><tr><td><code>PUBLIC_IP</code></td><td>Advertised in WebRTC ICE candidates; clients must reach this address</td></tr>
 <tr><td><code>COOKIE_SECURE</code> / <code>TRUST_PROXY</code></td><td><code>true</code> behind HTTPS reverse proxy</td></tr>
-<tr><td><code>WORKER_TOKEN</code> / <code>WORKERS</code></td><td>Only when using remote browser hosts</td></tr></tbody></table></div>
+<tr><td><code>WORKER_ENROLL_TOKEN</code></td><td>Shared enroll + agent Bearer when using remote browser hosts</td></tr>
+<tr><td><code>WORKER_TOKEN</code> / <code>WORKERS</code></td><td>Legacy fallback only</td></tr></tbody></table></div>
 <p>See <a href="#deployment" data-nav="deployment">docs/DEPLOYMENT.md</a> for firewall ports, TLS, TURN, and multi-host.</p>
 <hr />
 <h2 id="multi-host-workers">Multi-host workers</h2>
 <p>One portal schedules Neko containers onto the local engine and/or remote <strong>worker agents</strong>. Signaling stays on the portal; WebRTC media goes to the worker’s <code>PUBLIC_IP</code>.</p>
-<p>Guide: <strong><a href="#workers" data-nav="workers">docs/WORKERS.md</a></strong>. Podman remote units: <strong><a href="#podman" data-nav="podman">docs/PODMAN.md</a></strong>.</p>
-<pre class="code-block" data-lang="bash"><code># On a browser host (after setting WORKER_ID, WORKER_TOKEN, PUBLIC_IP):
+<p>Guide: <strong><a href="#workers" data-nav="workers">docs/WORKERS.md</a></strong>. Alma install: <strong><a href="#setup-ghcr-alma" data-nav="setup-ghcr-alma">docs/SETUP_GHCR_ALMA.md</a></strong> · <strong><a href="#home" data-nav="home">deploy/podman/README.md</a></strong>.</p>
+<pre class="code-block" data-lang="bash"><code># On a browser host:
+sudo bash deploy/podman/install-worker.sh
+# Then Admin → Workers → Authorize
+
+# Lab / Compose alternative:
 podman compose --profile worker up -d worker</code></pre>
 <hr />
 <h2 id="docs-map">Docs map</h2>
 <div class="table-wrap"><table><thead><tr><th>Doc</th><th>Contents</th></tr></thead><tbody><tr><td><a href="docs/site/index.html">docs/site/index.html</a></td><td>Pretty HTML docs (run <code>npm run docs:serve</code>)</td></tr>
 <tr><td><a href="#home" data-nav="home">docs/README.md</a></td><td>Index of all documentation</td></tr>
-<tr><td><a href="#architecture" data-nav="architecture">docs/ARCHITECTURE.md</a></td><td>System design, data flow, modules</td></tr>
+<tr><td><a href="#architecture" data-nav="architecture">docs/ARCHITECTURE.md</a></td><td>System design, roles, data flow, modules</td></tr>
 <tr><td><a href="#development" data-nav="development">docs/DEVELOPMENT.md</a></td><td>Dev setup, tests, coding map</td></tr>
 <tr><td><a href="#api" data-nav="api">docs/API.md</a></td><td>Portal + worker HTTP APIs</td></tr>
 <tr><td><a href="#deployment" data-nav="deployment">docs/DEPLOYMENT.md</a></td><td>Compose, TLS, firewall, ops</td></tr>
-<tr><td><a href="#podman" data-nav="podman">docs/PODMAN.md</a></td><td>GHCR + Podman Quadlet remote deploy</td></tr>
-<tr><td><a href="#workers" data-nav="workers">docs/WORKERS.md</a></td><td>Multi-host placement</td></tr>
+<tr><td><a href="#setup-ghcr-alma" data-nav="setup-ghcr-alma">docs/SETUP_GHCR_ALMA.md</a></td><td>Alma blank-box GHCR deploy</td></tr>
+<tr><td><a href="#podman" data-nav="podman">docs/PODMAN.md</a></td><td>GHCR publish + Podman reference</td></tr>
+<tr><td><a href="#home" data-nav="home">deploy/podman/README.md</a></td><td>Install script index</td></tr>
+<tr><td><a href="#workers" data-nav="workers">docs/WORKERS.md</a></td><td>Multi-host placement + enroll</td></tr>
 <tr><td><a href="#identity" data-nav="identity">docs/USER_IDENTITY.md</a></td><td><code>subjectId</code>, profiles, SAML</td></tr>
 <tr><td><a href="#security" data-nav="security">docs/SECURITY.md</a></td><td>Threat model and hardening</td></tr>
 <tr><td><a href="#plan" data-nav="plan">docs/PLAN.md</a></td><td>Product phases and roadmap</td></tr>
@@ -718,28 +728,52 @@ podman compose --profile worker up -d worker</code></pre>
 └─────────────┘                      └──────────────────┘</code></pre>
 <p>Signaling and the portal stay on the orchestrator. <strong>Media</strong> goes peer-to-peer (or via TURN) to the host that runs the container.</p>
 <hr />
+<h2 id="roles-same-image-different-entry">Roles (same image, different entry)</h2>
+<p>One container image (<code>ghcr.io/thecookies/browserisolation</code>) serves both roles. The entrypoint chooses based on <code>RBI_ROLE</code> (or CLI args):</p>
+<div class="table-wrap"><table><thead><tr><th>Role</th><th>How it starts</th><th>What it does</th></tr></thead><tbody><tr><td><strong>Orchestrator</strong></td><td><code>RBI_ROLE=orchestrator</code> (default) → <code>dist/index.js</code></td><td>Portal UI, auth, SQLite, session ACL proxy, scheduler, enroll API</td></tr>
+<tr><td><strong>Worker</strong></td><td><code>RBI_ROLE=worker</code> → <code>dist/worker-main.js</code></td><td>Agent on <code>/v1/*</code>; creates Neko locally; ICE uses this host’s <code>PUBLIC_IP</code></td></tr></tbody></table></div>
+<p><strong>Single-node:</strong> orchestrator with <code>LOCAL_WORKER_ENABLED=true</code> (worker id <code>local</code>) — no separate worker container needed.</p>
+<p><strong>Multi-host:</strong> portal on one machine; browser hosts run the same image as workers and self-enroll. See <a href="#workers" data-nav="workers">WORKERS.md</a>.</p>
+<hr />
 <h2 id="packages">Packages</h2>
 <h3 id="orchestrator-orchestrator">Orchestrator (<code>orchestrator/</code>)</h3>
-<p>Node 22 + <strong>Fastify</strong> service that:</p>
+<p>Node <strong>26+</strong> + <strong>Fastify</strong> service that:</p>
 <ul><li>Authenticates users (local bcrypt and optional SAML)</li>
 <li>Stores portal sessions, browser sessions, settings, workers, audit in <strong>SQLite</strong> (<code>better-sqlite3</code>)</li>
 <li>Creates/destroys Neko containers via <strong>dockerode</strong> (local) or remote <strong>worker agents</strong></li>
 <li>Reverse-proxies <code>/session/:id/view/*</code> (HTTP + WebSocket) to Neko after ACL checks</li>
 <li>Runs a background <strong>reaper</strong> and, on boot, <strong>reconciles</strong> DB rows with labeled containers</li>
-<li>Optionally runs as a <strong>worker agent</strong> (<code>worker-main.ts</code>) exposing <code>/v1/*</code></li></ul>
+<li>Optionally runs as a <strong>worker agent</strong> (<code>worker-main.ts</code>) exposing <code>/v1/*</code></li>
+<li>Serves optional <strong>branding</strong> (logo) from disk next to the database</li></ul>
 <p>Entry: <code>src/index.ts</code> (portal) · <code>src/worker-main.ts</code> (agent).</p>
 <h3 id="web-web">Web (<code>web/</code>)</h3>
 <p>React 19 + Vite SPA:</p>
 <ul><li>Login / dashboard / session viewer / admin console</li>
 <li>Typed API client (<code>api.ts</code>) with CSRF headers</li>
-<li>Custom Neko WebRTC client under <code>viewer/</code></li></ul>
+<li>Custom Neko WebRTC client under <code>viewer/</code></li>
+<li>Dark mode preference, change-password (local users), admin branding upload</li></ul>
 <p>In production the orchestrator serves <code>web/dist</code>. In development Vite proxies API and view traffic to <code>:8080</code>.</p>
 <h3 id="neko-containers">Neko containers</h3>
 <p>Official images <code>ghcr.io/m1k1o/neko/&lt;browser&gt;:&lt;tag&gt;</code>. Each session gets:</p>
-<ul><li>A Docker container on network <code>rbi-browsers</code> (default)</li>
+<ul><li>A container on network <code>rbi-browsers</code> (default), or host networking when <code>BROWSER_NETWORK_MODE=host</code></li>
 <li>One host <strong>WebRTC mux port</strong> (UDP + TCP) from <code>WEBRTC_PORT_RANGE</code></li>
 <li>Injected managed policies from <code>orchestrator/neko-policies/</code></li>
 <li>Optional named volume for a persistent browser profile</li></ul>
+<hr />
+<h2 id="deploy-picture-how-pieces-connect">Deploy picture (how pieces connect)</h2>
+<pre class="code-block" data-lang="text"><code>Developer laptop                    GitHub                         Alma hosts
+─────────────────                   ──────                         ──────────
+npm run dev  ──┐                    push main                      install-orchestrator.sh
+Compose build ─┼──► Dockerfile ──► Actions ──► ghcr.io/…:latest ──► browser-isolation
+               │                    (publish-image.yml)              (host net + sock)
+               │                                                   install-worker.sh
+               └──────────────────────────────────────────────────► browser-isolation-worker
+                                                                      enroll → Authorize
+                                                                      → Neko images pulled</code></pre>
+<ul><li><strong>Dev:</strong> Compose or <code>npm run dev</code> (bridge networking is fine).</li>
+<li><strong>Production (Alma):</strong> blank-box install scripts under <code>deploy/podman/</code> — host network, Podman socket at <code>/run/podman/podman.sock</code>, config in <code>/etc/browser-isolation/.env</code>.</li>
+<li><strong>Quadlet</strong> units under <code>deploy/podman/*.container</code> still exist for reference but are <strong>not</strong> the recommended path; installers stop old Quadlet services when present.</li></ul>
+<p>Details: <a href="#setup-ghcr-alma" data-nav="setup-ghcr-alma">SETUP_GHCR_ALMA.md</a> · <a href="#podman" data-nav="podman">PODMAN.md</a> · <a href="#home" data-nav="home">deploy/podman/README.md</a>.</p>
 <hr />
 <h2 id="request-path-login-stream-disconnect">Request path: login → stream → disconnect</h2>
 <pre class="code-block mermaid-source" data-lang="mermaid"><code>sequenceDiagram
@@ -776,14 +810,15 @@ podman compose --profile worker up -d worker</code></pre>
 <li><strong>Logout</strong> destroys the user’s browser container.</li></ol>
 <hr />
 <h2 id="module-map-orchestrator">Module map (orchestrator)</h2>
-<div class="table-wrap"><table><thead><tr><th>Area</th><th>Files</th><th>Responsibility</th></tr></thead><tbody><tr><td>Bootstrap</td><td><code>index.ts</code>, <code>config.ts</code>, <code>env-file.ts</code>, <code>db.ts</code></td><td>Load <code>.env</code>, open SQLite, wire services</td></tr>
+<div class="table-wrap"><table><thead><tr><th>Area</th><th>Files</th><th>Responsibility</th></tr></thead><tbody><tr><td>Bootstrap</td><td><code>index.ts</code>, <code>config.ts</code>, <code>env-file.ts</code>, <code>db.ts</code></td><td>Load <code>.env</code> (+ <code>/config/.env</code>), open SQLite, wire services</td></tr>
 <tr><td>HTTP app</td><td><code>app.ts</code>, <code>routes/*</code>, <code>proxy.ts</code></td><td>Cookies, CSRF, routes, static SPA, Neko proxy</td></tr>
 <tr><td>Auth</td><td><code>auth/*</code></td><td>Local users, SAML, <code>subjectId</code> / profile keys</td></tr>
+<tr><td>Branding</td><td><code>branding-store.ts</code>, <code>routes/branding.ts</code></td><td>Logo on disk next to DB; public + admin routes</td></tr>
 <tr><td>Browser sessions</td><td><code>browser-sessions.ts</code>, <code>browser-session-store.ts</code></td><td>Launch, access, destroy</td></tr>
 <tr><td>Docker</td><td><code>docker/*</code></td><td>Runtime, labels, policies, profile paths, security</td></tr>
 <tr><td>Lifecycle</td><td><code>lifecycle.ts</code>, <code>viewer-tracker.ts</code></td><td>Reconcile, idle/max-age reaper</td></tr>
-<tr><td>Workers</td><td><code>workers/*</code>, <code>worker-agent/app.ts</code></td><td>Placement, poller, remote client, agent API</td></tr>
-<tr><td>Admin data</td><td><code>settings-store.ts</code>, <code>audit-store.ts</code>, <code>user-preferences.ts</code></td><td>Overrides, audit, persist flag</td></tr></tbody></table></div>
+<tr><td>Workers</td><td><code>workers/*</code>, <code>worker-agent/app.ts</code></td><td>Placement, poller, remote client, agent API, enroll grants</td></tr>
+<tr><td>Admin data</td><td><code>settings-store.ts</code>, <code>audit-store.ts</code>, <code>user-preferences.ts</code></td><td>Overrides, audit, persist + dark mode</td></tr></tbody></table></div>
 <hr />
 <h2 id="module-map-web">Module map (web)</h2>
 <div class="table-wrap"><table><thead><tr><th>Area</th><th>Files</th><th>Responsibility</th></tr></thead><tbody><tr><td>Shell</td><td><code>App.tsx</code>, <code>main.tsx</code>, <code>Shell.tsx</code></td><td>Routes and session bootstrap</td></tr>
@@ -794,29 +829,31 @@ podman compose --profile worker up -d worker</code></pre>
 <p>Admin routes under <code>/admin/*</code> require <code>me.role === &quot;admin&quot;</code> in the SPA; the API enforces the same.</p>
 <hr />
 <h2 id="data-model-sqlite">Data model (SQLite)</h2>
-<p>File: <code>DATABASE_PATH</code> (Compose: <code>/data/rbi.sqlite</code> on volume <code>rbi-data</code>).</p>
+<p>File: <code>DATABASE_PATH</code> (Compose / Alma: <code>/data/rbi.sqlite</code> on volume <code>rbi-data</code>).</p>
 <div class="table-wrap"><table><thead><tr><th>Table</th><th>Purpose</th></tr></thead><tbody><tr><td><code>portal_sessions</code></td><td>Logged-in cookie sessions + CSRF token</td></tr>
 <tr><td><code>local_users</code></td><td>Bcrypt accounts (seeded once from <code>AUTH_USERS</code>)</td></tr>
-<tr><td><code>user_preferences</code></td><td>Persist-profile flag per <code>subject_id</code></td></tr>
+<tr><td><code>user_preferences</code></td><td>Persist-profile + dark-mode flags per <code>subject_id</code></td></tr>
 <tr><td><code>app_settings</code></td><td>Admin overrides of env-backed config</td></tr>
 <tr><td><code>browser_sessions</code></td><td>Active isolated browsers (container ids, ports, Neko secrets)</td></tr>
 <tr><td><code>workers</code></td><td>Local + remote worker registry</td></tr>
+<tr><td><code>worker_grants</code></td><td>Authorization memory across delete/re-enroll</td></tr>
 <tr><td><code>profile_placements</code></td><td>Sticky worker for persistent profiles</td></tr>
 <tr><td><code>audit_events</code></td><td>Admin/user action log</td></tr></tbody></table></div>
-<p>Schema and migrations: <code>orchestrator/src/db.ts</code>.</p>
+<p>Logo files live under <code>{dirname(DATABASE_PATH)}/branding/</code> (not in SQLite). Schema and migrations: <code>orchestrator/src/db.ts</code>.</p>
 <hr />
-<h2 id="docker-conventions">Docker conventions</h2>
-<div class="table-wrap"><table><thead><tr><th>Kind</th><th>Convention</th></tr></thead><tbody><tr><td>Network</td><td><code>BROWSER_NETWORK</code> (default <code>rbi-browsers</code>)</td></tr>
+<h2 id="docker-podman-conventions">Docker / Podman conventions</h2>
+<div class="table-wrap"><table><thead><tr><th>Kind</th><th>Convention</th></tr></thead><tbody><tr><td>Network</td><td><code>BROWSER_NETWORK</code> (default <code>rbi-browsers</code>); mode <code>bridge</code> (Compose) or <code>host</code> (Alma installers)</td></tr>
+<tr><td>Socket</td><td><code>DOCKER_SOCKET</code> — Compose default <code>/run/podman/podman.sock</code> (override for Docker Engine); Alma installers use <code>/run/podman/podman.sock</code></td></tr>
 <tr><td>Container name</td><td><code>rbi-{first 12 chars of session id}</code></td></tr>
 <tr><td>Labels</td><td><code>rbi.managed=true</code>, <code>rbi.owner</code>, <code>rbi.session</code>, <code>rbi.browser</code>, <code>rbi.webrtc_port</code></td></tr>
-<tr><td>Profile volume</td><td><code>rbi-profile-{32-hex}-{browserId}</code> + matching labels</td></tr>
+<tr><td>Profile volume</td><td><code>rbi-profile-{32-hex}-{browserId}</code> (e.g. <code>…-google-chrome</code>) + matching labels</td></tr>
 <tr><td>Neko HTTP</td><td>Port <code>8080</code> on the browser network (proxied, not published to clients)</td></tr>
 <tr><td>WebRTC</td><td>Host-published mux port per session</td></tr></tbody></table></div>
 <p>On orchestrator start, containers with <code>rbi.managed=true</code> are reconciled against <code>browser_sessions</code>.</p>
 <hr />
 <h2 id="auth-and-security-model">Auth and security model</h2>
 <div class="table-wrap"><table><thead><tr><th>Mechanism</th><th>Behavior</th></tr></thead><tbody><tr><td>Portal cookie</td><td><code>rbi_session</code>, httpOnly, SameSite=Lax, optional Secure</td></tr>
-<tr><td>CSRF</td><td>Header <code>X-CSRF-Token</code> on mutating <code>/api/*</code> (SAML ACS exempt)</td></tr>
+<tr><td>CSRF</td><td>Header <code>X-CSRF-Token</code> on mutating <code>/api/*</code> (SAML ACS + worker enroll exempt)</td></tr>
 <tr><td>Roles</td><td><code>user</code> \</td><td><code>admin</code> — admin is the <strong>role</strong>, not the username string</td></tr>
 <tr><td>Browser ACL</td><td>Owner or admin</td></tr>
 <tr><td>Clipboard / downloads</td><td>Gated by <code>ALLOW_CLIPBOARD</code> / <code>ALLOW_DOWNLOADS</code></td></tr>
@@ -825,9 +862,10 @@ podman compose --profile worker up -d worker</code></pre>
 <hr />
 <h2 id="workers-and-placement">Workers and placement</h2>
 <ul><li>Default: orchestrator is also worker id <code>local</code> (<code>LOCAL_WORKER_ENABLED=true</code>).</li>
-<li>Remote agents: Bearer-authenticated <code>/v1/*</code> on <code>WORKER_PORT</code> (default 8090).</li>
+<li>Remote agents: Bearer-authenticated <code>/v1/*</code> on <code>WORKER_PORT</code> (default 8090). Enroll uses <code>WORKER_ENROLL_TOKEN</code> (same value becomes the agent Bearer for that deployment).</li>
 <li>Scheduler picks the online enabled worker with the lowest <code>activeSessions</code> (sticky id tie-break).</li>
-<li>Persistent profiles prefer the worker recorded in <code>profile_placements</code>.</li></ul>
+<li>Persistent profiles prefer the worker recorded in <code>profile_placements</code>.</li>
+<li><code>worker_grants</code> remembers Authorize/Deauthorize across row delete + re-enroll.</li></ul>
 <p>Details: <a href="#workers" data-nav="workers">WORKERS.md</a>.</p>
 <hr />
 <h2 id="session-lifecycle">Session lifecycle</h2>
@@ -840,16 +878,23 @@ podman compose --profile worker up -d worker</code></pre>
 <p>Implementation: <code>lifecycle.ts</code>, <code>browser-sessions.ts</code>.</p>
 <hr />
 <h2 id="configuration-layering">Configuration layering</h2>
-<pre class="code-block" data-lang="text"><code>.env / process env  →  loadConfig()  →  Config object
-                              ↑
-                     app_settings (SQLite) hydrated on top
-                     via settings-store (Admin → Settings)</code></pre>
-<p>Editable fields are declared in <code>settings-fields.ts</code>. Some keys are intentionally not overridable from the UI (bind address, DB path, Docker socket, network name, WebRTC port range).</p>
+<pre class="code-block" data-lang="text"><code>process env
+    + repo-root /.env          (local / Compose)
+    + /config/.env             (Alma mount; wins when present)
+         ↓
+   loadConfig()  →  Config object
+         ↑
+   app_settings (SQLite) hydrated on top
+   via settings-store (Admin → Settings)</code></pre>
+<p>On first container start with an empty <code>/config/.env</code>, <code>deploy/podman/entrypoint.sh</code> creates one (random admin password unless the installer already wrote the file). Existing <code>.env</code> is never overwritten.</p>
+<p>Editable fields are declared in <code>settings-fields.ts</code>. Infrastructure keys stay read-only in the UI, including: bind address, <code>DATABASE_PATH</code>, <code>DOCKER_SOCKET</code>, <code>BROWSER_NETWORK</code>, <code>BROWSER_NETWORK_MODE</code>, <code>WEBRTC_PORT_RANGE</code>.</p>
+<p>Full catalog: <a href="../.env.example">../.env.example</a>.</p>
 <hr />
 <h2 id="related-docs">Related docs</h2>
 <ul><li><a href="#development" data-nav="development">DEVELOPMENT.md</a> — where to change code day to day  </li>
 <li><a href="#api" data-nav="api">API.md</a> — route inventory  </li>
 <li><a href="#deployment" data-nav="deployment">DEPLOYMENT.md</a> — how this maps to hosts and networks  </li>
+<li><a href="#setup-ghcr-alma" data-nav="setup-ghcr-alma">SETUP_GHCR_ALMA.md</a> — blank-box Alma install  </li>
 <li><a href="#plan" data-nav="plan">PLAN.md</a> — product phases  </li></ul>
         </div>
       </article>
@@ -866,16 +911,20 @@ podman compose --profile worker up -d worker</code></pre>
 <h2 id="prerequisites">Prerequisites</h2>
 <ul><li>Node.js <strong>26+</strong></li>
 <li>npm (workspaces; root <code>package-lock.json</code>)</li>
-<li>Docker Engine (required to launch real browsers; unit tests mock most of it)</li></ul>
+<li><strong>Podman</strong> or <strong>Docker Engine</strong> to launch real browsers (unit tests mock most of the container API)</li></ul>
 <h2 id="first-time-setup">First-time setup</h2>
 <pre class="code-block" data-lang="bash"><code>cd /path/to/BrowserIsolation
 cp .env.example .env
 # PUBLIC_IP=127.0.0.1 is fine for same-machine viewer testing
 npm install</code></pre>
-<p>Create the Docker network if you are not using Compose (Compose creates <code>rbi-browsers</code>):</p>
-<pre class="code-block" data-lang="bash"><code>docker network create rbi-browsers || true</code></pre>
-<p>Optional: pre-pull Neko images so the first launch is fast:</p>
-<pre class="code-block" data-lang="bash"><code>docker compose --profile prepull pull</code></pre>
+<p>Create the browser network if you are not using Compose (Compose creates <code>rbi-browsers</code>):</p>
+<pre class="code-block" data-lang="bash"><code>podman network create rbi-browsers || true
+# Docker Engine: docker network create rbi-browsers || true</code></pre>
+<p>Optional: pre-pull Neko images so the first launch is fast (there is no Compose <code>prepull</code> profile):</p>
+<pre class="code-block" data-lang="bash"><code>podman pull ghcr.io/m1k1o/neko/google-chrome:latest
+podman pull ghcr.io/m1k1o/neko/firefox:latest
+podman pull ghcr.io/m1k1o/neko/brave:latest
+# Or after the portal is up: Admin → Browsers → Pull latest</code></pre>
 <h2 id="daily-commands">Daily commands</h2>
 <div class="table-wrap"><table><thead><tr><th>Command</th><th>What it does</th></tr></thead><tbody><tr><td><code>npm run dev</code></td><td>API on <code>:8080</code> + Vite on <code>:5173</code></td></tr>
 <tr><td><code>npm test</code></td><td>Orchestrator unit tests (<code>tsx --test</code>)</td></tr>
@@ -883,10 +932,13 @@ npm install</code></pre>
 <tr><td><code>npm start</code></td><td>Run built orchestrator (serves <code>web/dist</code> when <code>NODE_ENV=production</code>)</td></tr>
 <tr><td><code>npm run dev -w orchestrator</code></td><td>API only</td></tr>
 <tr><td><code>npm run dev -w web</code></td><td>UI only</td></tr>
-<tr><td><code>npm run start:worker -w orchestrator</code></td><td>Worker agent (needs <code>WORKER_TOKEN</code>)</td></tr></tbody></table></div>
-<p>Open the UI at <strong>http://localhost:5173</strong> during <code>npm run dev</code>. Vite proxies <code>/api</code> and <code>/session/:id/view/*</code> to the API; the SPA shell for <code>/session/:id</code> stays on Vite (see <code>web/vite.config.ts</code>).</p>
+<tr><td><code>npm run start:worker -w orchestrator</code></td><td>Worker agent (needs enroll/<code>WORKER_TOKEN</code>)</td></tr>
+<tr><td><code>npm run docs</code></td><td>Rebuild pretty HTML docs under <code>docs/site/</code></td></tr>
+<tr><td><code>npm run docs:serve</code></td><td>Rebuild + serve HTML docs on <code>:4173</code></td></tr></tbody></table></div>
+<p>Open the UI at <strong>http://localhost:5173</strong> during <code>npm run dev</code>. Vite proxies <code>/api</code> and <code>/session/*/view</code> → API; the SPA shell for <code>/session/:id</code> stays on Vite (see <code>web/vite.config.ts</code>).</p>
 <h2 id="environment-tips">Environment tips</h2>
 <ul><li>Keep <code>.env</code> at the <strong>repo root</strong>. Both portal and worker load it via <code>env-file.ts</code>.</li>
+<li>On Alma containers, host-mounted <strong><code>/config/.env</code> overrides</strong> the image/repo <code>.env</code> (see <a href="ARCHITECTURE.md#configuration-layering">ARCHITECTURE.md</a>).</li>
 <li><code>COOKIE_SECURE=false</code> for local HTTP.</li>
 <li>Set <code>PUBLIC_IP</code> to your LAN IP if you open the portal from another device.</li>
 <li>First boot seeds <code>admin</code> / <code>user</code> from <code>AUTH_USERS</code> only when <code>local_users</code> is empty. After that, use <strong>Admin → Users</strong>.</li></ul>
@@ -899,8 +951,10 @@ npm install</code></pre>
 <tr><td>Add config knob</td><td><code>.env.example</code>, <code>config.ts</code>, optionally <code>settings-fields.ts</code></td></tr>
 <tr><td>Touch identity / profiles</td><td><code>auth/identity.ts</code>, <a href="#identity" data-nav="identity">USER_IDENTITY.md</a></td></tr>
 <tr><td>Touch multi-host</td><td><code>workers/*</code>, <a href="#workers" data-nav="workers">WORKERS.md</a></td></tr>
+<tr><td>Change branding / logo</td><td><code>branding-store.ts</code>, <code>routes/branding.ts</code>, Admin → Settings</td></tr>
 <tr><td>Change browser catalog</td><td><code>neko-browsers.ts</code>, policies under <code>neko-policies/</code></td></tr>
-<tr><td>Change SQLite schema</td><td><code>db.ts</code> (+ migration helpers in the same file)</td></tr></tbody></table></div>
+<tr><td>Change SQLite schema</td><td><code>db.ts</code> (+ migration helpers in the same file)</td></tr>
+<tr><td>Change Alma install / entrypoint</td><td><code>deploy/podman/</code>, <a href="#setup-ghcr-alma" data-nav="setup-ghcr-alma">SETUP_GHCR_ALMA.md</a></td></tr></tbody></table></div>
 <h2 id="testing">Testing</h2>
 <pre class="code-block" data-lang="bash"><code># Fast unit suite (default)
 npm test
@@ -908,28 +962,41 @@ npm test
 # Single file
 npm test -w orchestrator -- test/auth.test.ts
 
-# Real Docker + Neko (slow; needs images and socket)
+# Real Podman/Docker + Neko (slow; needs images and socket)
 RBI_INTEGRATION=1 npm test -w orchestrator -- test/integration.test.ts</code></pre>
 <p>Tests use Node’s built-in test runner via <code>tsx</code>. Helpers live in <code>orchestrator/test/helpers.ts</code> (in-memory DB, mock placement, etc.).</p>
 <p>There is no automated frontend test suite yet; verify UI changes manually against <code>npm run dev</code>.</p>
 <h3 id="what-the-important-tests-cover">What the important tests cover</h3>
-<div class="table-wrap"><table><thead><tr><th>File</th><th>Focus</th></tr></thead><tbody><tr><td><code>auth.test.ts</code></td><td>Cookies, CSRF, login/logout</td></tr>
+<div class="table-wrap"><table><thead><tr><th>File</th><th>Focus</th></tr></thead><tbody><tr><td><code>config.test.ts</code></td><td>Env parsing / defaults</td></tr>
+<tr><td><code>local-auth.test.ts</code></td><td>Local user store</td></tr>
+<tr><td><code>session-store.test.ts</code></td><td>Portal sessions</td></tr>
+<tr><td><code>auth.test.ts</code></td><td>Cookies, CSRF, login/logout</td></tr>
+<tr><td><code>change-password.test.ts</code></td><td>Local password change</td></tr>
 <tr><td><code>access-control.test.ts</code></td><td>Session ownership vs admin</td></tr>
 <tr><td><code>browser-sessions.test.ts</code></td><td>Launch / access with mocked workers</td></tr>
+<tr><td><code>geometry.test.ts</code></td><td>Viewer geometry helpers</td></tr>
+<tr><td><code>admin.test.ts</code> / <code>admin-volumes.test.ts</code></td><td>Admin APIs / profile volumes</td></tr>
+<tr><td><code>audit.test.ts</code></td><td>Audit log</td></tr>
 <tr><td><code>lifecycle.test.ts</code></td><td>Reconcile + reaper</td></tr>
-<tr><td><code>workers.test.ts</code></td><td>Placement and online detection</td></tr>
-<tr><td><code>saml.test.ts</code></td><td>SAML helpers / profile mapping</td></tr>
+<tr><td><code>policy-tar.test.ts</code></td><td>Policy injection packaging</td></tr>
+<tr><td><code>identity.test.ts</code></td><td><code>subjectId</code> / volume naming</td></tr>
+<tr><td><code>neko-browsers.test.ts</code></td><td>Browser catalog</td></tr>
 <tr><td><code>settings.test.ts</code></td><td>Admin overrides</td></tr>
+<tr><td><code>workers.test.ts</code> / <code>worker-auth.test.ts</code></td><td>Placement, online detection, enroll auth</td></tr>
+<tr><td><code>host-metrics.test.ts</code></td><td>Worker host stats</td></tr>
+<tr><td><code>saml.test.ts</code></td><td>SAML helpers / profile mapping</td></tr>
 <tr><td><code>integration.test.ts</code></td><td>Opt-in real container path</td></tr></tbody></table></div>
 <h2 id="debugging-tips">Debugging tips</h2>
 <p><strong>Browser won’t stream</strong></p>
 <ol><li>Confirm <code>PUBLIC_IP</code> is reachable from the client on the WebRTC port range (UDP <strong>and</strong> TCP).</li>
 <li>Check orchestrator logs for container create / Neko readiness failures.</li>
-<li>In the browser, inspect WebRTC ICE failures (candidates pointing at the wrong IP).</li></ol>
+<li>In the browser, inspect WebRTC ICE failures (candidates pointing at the wrong IP).</li>
+<li>On Alma/Hyper-V style hosts, use <code>BROWSER_NETWORK_MODE=host</code> (installer default).</li></ol>
 <p><strong>403 <code>csrf_failed</code></strong></p>
 <ul><li>Mutating <code>/api/*</code> calls need <code>X-CSRF-Token</code>.</li>
 <li>Logged out: call <code>GET /api/auth/csrf</code> first.</li>
-<li>Logged in: use <code>csrfToken</code> from <code>GET /api/me</code> (the SPA does this in <code>api.ts</code>).</li></ul>
+<li>Logged in: use <code>csrfToken</code> from <code>GET /api/me</code> (the SPA does this in <code>api.ts</code>).</li>
+<li>Exempt: SAML ACS and <code>POST /api/workers/enroll</code>.</li></ul>
 <p><strong>Launch returns an error about ports</strong></p>
 <ul><li>Pool exhausted → widen <code>WEBRTC_PORT_RANGE</code> and publish those ports (Compose worker service publishes <code>52000-52099</code> by default).</li></ul>
 <p><strong>Admin UI missing a feature that the API has</strong></p>
@@ -944,8 +1011,8 @@ RBI_INTEGRATION=1 npm test -w orchestrator -- test/integration.test.ts</code></p
 <pre class="code-block" data-lang="bash"><code>npm run build
 NODE_ENV=production npm start
 # or
-docker compose up --build</code></pre>
-<p>The Dockerfile multi-stage build runs <code>npm ci</code>, builds both workspaces, prunes dev deps, and defaults <code>CMD</code> to the portal (<code>dist/index.js</code>). Workers override the command to <code>dist/worker-main.js</code>.</p>
+podman compose up --build</code></pre>
+<p>The Dockerfile multi-stage build runs <code>npm ci</code>, builds both workspaces, prunes dev deps, and sets <strong><code>ENTRYPOINT [&quot;/entrypoint.sh&quot;]</code></strong>. The entrypoint starts the portal (<code>dist/index.js</code>) by default, or the worker (<code>dist/worker-main.js</code>) when <code>RBI_ROLE=worker</code> (Compose worker profile / install-worker set this). Runtime image is <code>node:26-bookworm-slim</code>.</p>
         </div>
       </article>
 
@@ -965,7 +1032,7 @@ docker compose up --build</code></pre>
 <h2 id="conventions-portal">Conventions (portal)</h2>
 <div class="table-wrap"><table><thead><tr><th>Topic</th><th>Rule</th></tr></thead><tbody><tr><td>Auth</td><td>Cookie <code>rbi_session</code> → <code>request.authUser</code></td></tr>
 <tr><td>CSRF</td><td>Header <code>X-CSRF-Token</code> on <code>POST</code>/<code>PUT</code>/<code>PATCH</code>/<code>DELETE</code> under <code>/api/*</code></td></tr>
-<tr><td>CSRF exempt</td><td><code>POST /api/auth/saml/acs</code> only</td></tr>
+<tr><td>CSRF exempt</td><td><code>POST /api/auth/saml/acs</code>, <code>POST /api/workers/enroll</code></td></tr>
 <tr><td>Errors</td><td>JSON <code>{ &quot;error&quot;: &quot;&lt;code&gt;&quot; }</code> with appropriate HTTP status</td></tr>
 <tr><td>Health</td><td><code>GET /api/health</code> → <code>{ &quot;ok&quot;: true }</code> (no auth)</td></tr></tbody></table></div>
 <p>CSRF sources:</p>
@@ -980,7 +1047,9 @@ docker compose up --build</code></pre>
 <tr><td>POST</td><td><code>/api/auth/saml/acs</code></td><td>No</td><td>Exempt</td><td>SAML assertion consumer</td></tr>
 <tr><td>GET</td><td><code>/saml/metadata</code></td><td>No</td><td>—</td><td>SP metadata XML</td></tr>
 <tr><td>POST</td><td><code>/api/auth/logout</code></td><td>Yes</td><td>Yes</td><td>End portal session; destroy browser</td></tr>
-<tr><td>GET</td><td><code>/api/me</code></td><td>Yes</td><td>—</td><td>Current user + preferences + CSRF</td></tr></tbody></table></div>
+<tr><td>POST</td><td><code>/api/auth/password</code></td><td>Yes</td><td>Yes</td><td>Change own local password <code>{ currentPassword, newPassword }</code></td></tr>
+<tr><td>GET</td><td><code>/api/me</code></td><td>Yes</td><td>—</td><td>Current user + preferences + CSRF + <code>canChangePassword</code> / <code>darkMode</code> / <code>logoUrl</code></td></tr></tbody></table></div>
+<p><code>GET /api/me</code> includes (among other fields): <code>username</code>, <code>role</code>, <code>subjectId</code>, <code>csrfToken</code>, <code>persistProfile</code>, <code>persistProfilesEnabled</code>, <code>darkMode</code>, <code>canChangePassword</code>, <code>logoUrl</code>.</p>
 <hr />
 <h2 id="user-sessions-isolated-browsers">User sessions (isolated browsers)</h2>
 <div class="table-wrap"><table><thead><tr><th>Method</th><th>Path</th><th>Auth</th><th>CSRF</th><th>Purpose</th></tr></thead><tbody><tr><td>GET</td><td><code>/api/browsers</code></td><td>Yes</td><td>—</td><td>Enabled browser catalog for the dashboard</td></tr>
@@ -1003,12 +1072,19 @@ docker compose up --build</code></pre>
 <p>WebSocket URL (same origin): <code>{wsPath}?username=rbi&amp;password=…</code> (see <code>web/src/viewer/</code>).</p>
 <hr />
 <h2 id="preferences">Preferences</h2>
-<div class="table-wrap"><table><thead><tr><th>Method</th><th>Path</th><th>Auth</th><th>CSRF</th><th>Purpose</th></tr></thead><tbody><tr><td>GET</td><td><code>/api/preferences</code></td><td>Yes</td><td>—</td><td>Persist-profile flags</td></tr>
-<tr><td>PUT</td><td><code>/api/preferences</code></td><td>Yes</td><td>Yes</td><td><code>{ &quot;persistProfile&quot;: boolean }</code></td></tr></tbody></table></div>
-<p>Applies on the <strong>next</strong> launch. See <a href="#identity" data-nav="identity">USER_IDENTITY.md</a>.</p>
+<div class="table-wrap"><table><thead><tr><th>Method</th><th>Path</th><th>Auth</th><th>CSRF</th><th>Purpose</th></tr></thead><tbody><tr><td>GET</td><td><code>/api/preferences</code></td><td>Yes</td><td>—</td><td><code>{ persistProfile, darkMode }</code></td></tr>
+<tr><td>PUT</td><td><code>/api/preferences</code></td><td>Yes</td><td>Yes</td><td><code>{ &quot;persistProfile&quot;?: boolean, &quot;darkMode&quot;?: boolean }</code></td></tr></tbody></table></div>
+<p><code>persistProfile</code> applies on the <strong>next</strong> launch. <code>darkMode</code> applies immediately in the SPA. See <a href="#identity" data-nav="identity">USER_IDENTITY.md</a>.</p>
+<hr />
+<h2 id="branding">Branding</h2>
+<div class="table-wrap"><table><thead><tr><th>Method</th><th>Path</th><th>Auth</th><th>CSRF</th><th>Purpose</th></tr></thead><tbody><tr><td>GET</td><td><code>/branding/logo</code></td><td>No</td><td>—</td><td>Serve uploaded logo bytes (cache-busted via <code>?v=</code>)</td></tr>
+<tr><td>GET</td><td><code>/api/admin/branding</code></td><td>Admin</td><td>—</td><td>Logo metadata</td></tr>
+<tr><td>PUT</td><td><code>/api/admin/branding/logo</code></td><td>Admin</td><td>Yes</td><td>Upload logo (data URL / base64 body)</td></tr>
+<tr><td>DELETE</td><td><code>/api/admin/branding/logo</code></td><td>Admin</td><td>Yes</td><td>Remove logo</td></tr></tbody></table></div>
+<p>Logo files live under <code>{dirname(DATABASE_PATH)}/branding/</code>.</p>
 <hr />
 <h2 id="admin">Admin</h2>
-<p>All routes require <code>role === &quot;admin&quot;</code>.</p>
+<p>All routes require <code>role === &quot;admin&quot;</code> unless noted.</p>
 <h3 id="sessions-audit">Sessions &amp; audit</h3>
 <div class="table-wrap"><table><thead><tr><th>Method</th><th>Path</th><th>CSRF</th><th>Purpose</th></tr></thead><tbody><tr><td>GET</td><td><code>/api/admin/sessions</code></td><td>—</td><td>All sessions + viewer/CPU/memory where available</td></tr>
 <tr><td>POST</td><td><code>/api/admin/sessions/:sessionId/join</code></td><td>Yes</td><td>Issue access (audited)</td></tr>
@@ -1089,25 +1165,32 @@ docker compose up --build</code></pre>
         <div class="doc-body">
           <h1 id="deployment">Deployment</h1>
 <p>How to run Browser Isolation in production (or anything beyond a laptop).</p>
-<p><strong>Production recommendation:</strong> Podman + GHCR image + self-bootstrapping <code>podman run --network=host</code> (host-mounted <code>/config/.env</code>).</p>
+<p><strong>Production recommendation:</strong> Alma/RHEL + Podman + GHCR image via <strong><code>install-orchestrator.sh</code></strong> (<code>--network=host</code>, host-mounted <code>/config/.env</code>, Podman socket at <code>/run/podman/podman.sock</code>).</p>
 <ul><li>Exact Alma Linux checklist: <strong><a href="#setup-ghcr-alma" data-nav="setup-ghcr-alma">SETUP_GHCR_ALMA.md</a></strong></li>
+<li>Installer index: <strong><a href="#home" data-nav="home">../deploy/podman/README.md</a></strong></li>
 <li>Background / reference: <strong><a href="#podman" data-nav="podman">PODMAN.md</a></strong></li></ul>
 <h2 id="recommended-topology">Recommended topology</h2>
 <p><strong>Single host (default)</strong></p>
-<ul><li>One orchestrator service (<code>LOCAL_WORKER_ENABLED=true</code>)  </li>
-<li>Container engine socket mounted (Podman or Docker); WebRTC ports published on the host (or DNAT)  </li>
+<ul><li>One orchestrator container (<code>LOCAL_WORKER_ENABLED=true</code>, <code>RBI_ROLE=orchestrator</code>)  </li>
+<li>Podman socket mounted; <code>BROWSER_NETWORK_MODE=host</code> on Alma  </li>
 <li>Optional reverse proxy for TLS on <code>443</code></li></ul>
 <p><strong>Split control / data plane</strong></p>
-<ul><li>Portal host: orchestrator only (<code>LOCAL_WORKER_ENABLED=false</code>)  </li>
-<li>One or more browser hosts: worker profile / worker Quadlet  </li>
+<ul><li>Portal host: orchestrator (<code>install-orchestrator.sh</code>; optionally <code>LOCAL_WORKER_ENABLED=false</code>)  </li>
+<li>Browser hosts: <code>install-worker.sh</code> → enroll → <strong>Admin → Authorize</strong>  </li>
 <li>Clients → portal (HTTPS); clients → each worker <code>PUBLIC_IP</code> for WebRTC  </li>
 <li>Orchestrator → worker agents on a private network  </li></ul>
 <p>See <a href="#workers" data-nav="workers">WORKERS.md</a>.</p>
 <hr />
 <h2 id="podman-ghcr-recommended">Podman + GHCR (recommended)</h2>
-<ol><li>Push to <code>main</code> so Actions publishes <code>ghcr.io/thecookies/browserisolation:latest</code>.  </li>
-<li>On the host: enable <code>podman.socket</code>, <code>podman login --authfile /etc/containers/auth.json</code>, then <code>podman run --network=host</code> with <code>/config</code>, data, and socket mounts.  </li></ol>
+<ol><li>Push to <code>main</code> so Actions publishes <code>ghcr.io/thecookies/browserisolation:latest</code> (Node 26 image).  </li>
+<li>On the host: <code>sudo bash install-orchestrator.sh</code> (or pipe the script from the image).  </li></ol>
 <p>Full steps: <a href="#setup-ghcr-alma" data-nav="setup-ghcr-alma">SETUP_GHCR_ALMA.md</a> · <a href="#podman" data-nav="podman">PODMAN.md</a>.</p>
+<p>Installer defaults worth remembering:</p>
+<div class="table-wrap"><table><thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody><tr><td>Admin password (first <code>.env</code> only)</td><td><code>BrowserIsolation-Admin1</code> → also <code>/etc/browser-isolation/admin-password.txt</code></td></tr>
+<tr><td>Network</td><td><code>--network=host</code>, <code>BROWSER_NETWORK_MODE=host</code></td></tr>
+<tr><td>Socket</td><td><code>/run/podman/podman.sock</code> both sides</td></tr>
+<tr><td>Privileges</td><td><code>--privileged</code> + <code>label=disable</code></td></tr>
+<tr><td>Enroll secret</td><td><code>WORKER_ENROLL_TOKEN</code> written into orchestrator <code>.env</code></td></tr></tbody></table></div>
 <hr />
 <h2 id="compose-quick-deploy">Compose quick deploy</h2>
 <pre class="code-block" data-lang="bash"><code>cp .env.example .env
@@ -1119,7 +1202,7 @@ podman compose up -d --build
 # Docker Engine:
 # CONTAINER_SOCKET=/var/run/docker.sock docker compose up -d --build</code></pre>
 <p>Healthcheck hits <code>GET /api/health</code> inside the container.</p>
-<p>Data persists on volume <code>rbi-data</code> → <code>/data/rbi.sqlite</code>.</p>
+<p>Data persists on volume <code>rbi-data</code> → <code>/data/rbi.sqlite</code>. Compose typically uses <strong>bridge</strong> networking (<code>BROWSER_NETWORK_MODE</code> default <code>bridge</code>); Alma installers force <strong>host</strong>.</p>
 <hr />
 <h2 id="firewall-security-groups">Firewall / security groups</h2>
 <div class="table-wrap"><table><thead><tr><th>Port</th><th>Protocol</th><th>Who needs it</th><th>Purpose</th></tr></thead><tbody><tr><td><code>PORT</code> (8080) or <code>80</code>/<code>443</code> on proxy</td><td>TCP</td><td>Clients</td><td>Portal UI, API, signaling proxy</td></tr>
@@ -1168,7 +1251,8 @@ server {
 <div class="table-wrap"><table><thead><tr><th>Setting</th><th>Guidance</th></tr></thead><tbody><tr><td><code>PUBLIC_IP</code></td><td>Address clients use in ICE candidates (host public IP or LAN IP)</td></tr>
 <tr><td><code>WEBRTC_ICELITE=true</code></td><td>Default; matches single published mux port</td></tr>
 <tr><td><code>ICE_SERVERS_*</code></td><td>JSON arrays of <code>RTCIceServer</code>; set when you add TURN</td></tr>
-<tr><td>TURN</td><td>Requires <code>WEBRTC_ICELITE=false</code> and real TURN credentials</td></tr></tbody></table></div>
+<tr><td>TURN</td><td>Requires <code>WEBRTC_ICELITE=false</code> and real TURN credentials</td></tr>
+<tr><td><code>BROWSER_NETWORK_MODE=host</code></td><td>Required on many Alma / Hyper-V setups so published ports are reachable</td></tr></tbody></table></div>
 <p>If users are behind strict NAT and direct UDP fails, deploy TURN and configure both frontend and backend ICE server lists (see <code>.env.example</code>).</p>
 <hr />
 <h2 id="capacity-knobs">Capacity knobs</h2>
@@ -1181,14 +1265,14 @@ server {
 <p>Admin → Settings can override most of these without redeploying (except infrastructure keys).</p>
 <hr />
 <h2 id="security-checklist">Security checklist</h2>
-<ul><li>[ ] Change default <code>admin</code> / <code>user</code> passwords (or delete seed users) after first login  </li>
+<ul><li>[ ] Change default <code>admin</code> password after first login (installer default is <code>BrowserIsolation-Admin1</code>)  </li>
 <li>[ ] <code>COOKIE_SECURE=true</code> and HTTPS in production  </li>
 <li>[ ] <code>TRUST_PROXY=true</code> only behind a proxy you control  </li>
 <li>[ ] Keep <code>ALLOW_CLIPBOARD</code> / <code>ALLOW_DOWNLOADS</code> off unless required  </li>
-<li>[ ] Do not expose Docker socket or worker agent ports publicly  </li>
+<li>[ ] Do not expose Podman/Docker socket or worker agent ports publicly  </li>
+<li>[ ] Treat install-script GHCR credentials and <code>WORKER_ENROLL_TOKEN</code> as cluster secrets; rotate if leaked  </li>
 <li>[ ] Restrict who has <code>admin</code> role; prefer SAML + <code>SAML_ADMIN_GROUP</code> when using SSO  </li>
-<li>[ ] Rotate <code>WORKER_TOKEN</code> if it leaks; treat it like a cluster secret  </li>
-<li>[ ] Back up <code>/data/rbi.sqlite</code> (and decide whether profile volumes are in scope)</li></ul>
+<li>[ ] Back up <code>/data/rbi.sqlite</code> (and decide whether profile volumes / branding files are in scope)</li></ul>
 <hr />
 <h2 id="saml-sso">SAML / SSO</h2>
 <p>Configure in <strong>Admin → Settings → SSO / SAML</strong> or via <code>.env</code>. You need at least:</p>
@@ -1200,10 +1284,14 @@ server {
 <p>Details: <a href="#identity" data-nav="identity">USER_IDENTITY.md</a>.</p>
 <hr />
 <h2 id="upgrades">Upgrades</h2>
-<p><strong>GHCR host (<code>podman run</code>)</strong></p>
+<p><strong>GHCR Alma host (preferred)</strong></p>
+<pre class="code-block" data-lang="bash"><code>sudo bash install-orchestrator.sh
+# workers:
+sudo bash install-worker.sh</code></pre>
+<p><strong>Manual <code>podman run</code></strong></p>
 <pre class="code-block" data-lang="bash"><code>sudo podman pull --authfile /etc/containers/auth.json ghcr.io/thecookies/browserisolation:latest
 sudo podman rm -f browser-isolation
-# re-run the same podman run (or sudo bash deploy/podman/run.sh --no-pull)</code></pre>
+# re-run the same podman run flags as SETUP_GHCR_ALMA.md</code></pre>
 <p><strong>Compose from a git checkout</strong></p>
 <pre class="code-block" data-lang="bash"><code>git pull
 podman compose pull
@@ -1213,7 +1301,7 @@ podman compose up -d --build</code></pre>
 <li>Hydrates settings from <code>app_settings</code>  </li>
 <li>Reconciles managed containers with <code>browser_sessions</code>  </li>
 <li>Starts the reaper and worker poller  </li></ol>
-<p>Neko image tags: set <code>NEKO_IMAGE_TAG</code> or use <strong>Admin → Browsers → Pull latest</strong>.</p>
+<p>Neko image tags: set <code>NEKO_IMAGE_TAG</code> or use <strong>Admin → Browsers → Pull latest</strong> (fans out to authorized workers).</p>
 <hr />
 <h2 id="observability">Observability</h2>
 <ul><li>Orchestrator logs: Fastify JSON logs (cookies redacted)  </li>
@@ -1223,12 +1311,13 @@ podman compose up -d --build</code></pre>
 <p>There is no separate metrics exporter yet; scrape logs or poll admin APIs if you need external monitoring.</p>
 <hr />
 <h2 id="troubleshooting">Troubleshooting</h2>
-<div class="table-wrap"><table><thead><tr><th>Symptom</th><th>Likely cause</th></tr></thead><tbody><tr><td>Black / stuck stream</td><td>Wrong <code>PUBLIC_IP</code>, firewall blocking WebRTC UDP/TCP, ICE lite vs TURN mismatch</td></tr>
+<div class="table-wrap"><table><thead><tr><th>Symptom</th><th>Likely cause</th></tr></thead><tbody><tr><td>Black / stuck stream</td><td>Wrong <code>PUBLIC_IP</code>, firewall blocking WebRTC UDP/TCP, ICE lite vs TURN mismatch, need <code>BROWSER_NETWORK_MODE=host</code></td></tr>
 <tr><td>Works on server, not remote client</td><td><code>PUBLIC_IP=127.0.0.1</code></td></tr>
 <tr><td>Login cookie lost</td><td><code>COOKIE_SECURE=true</code> on HTTP, or proxy not forwarding proto</td></tr>
-<tr><td>First launch slow</td><td>Image not pulled; run prepull profile</td></tr>
+<tr><td>First launch slow</td><td>Neko image not pulled; use Admin → Browsers → Pull latest or <code>podman pull ghcr.io/m1k1o/neko/…</code></td></tr>
 <tr><td><code>webrtc_port_pool_exhausted</code></td><td>Too many sessions for range; widen range + publish ports</td></tr>
-<tr><td>Worker always offline</td><td>Orchestrator cannot reach agent URL; token mismatch; firewall</td></tr>
+<tr><td>Worker always offline</td><td>Orchestrator cannot reach agent URL; enroll/token mismatch; firewall</td></tr>
+<tr><td>Socket / create browser fails</td><td>Socket path mismatch (<code>/run/podman/podman.sock</code>); missing <code>--privileged</code></td></tr>
 <tr><td>Profile “lost” after SSO</td><td>Different <code>subjectId</code> (<code>local:</code> vs <code>saml:</code>) — see USER_IDENTITY.md</td></tr></tbody></table></div>
         </div>
       </article>
@@ -1241,13 +1330,17 @@ podman compose up -d --build</code></pre>
         </header>
         <div class="doc-body">
           <h1 id="super-simple-deploy-ghcr-alma-linux">Super-simple deploy: GHCR + Alma Linux</h1>
-<p>The container is self-bootstrapping:</p>
-<ul><li>Mount host <code>/etc/browser-isolation</code> → <code>/config</code></li>
-<li>On first start, if <code>/config/.env</code> is missing, the container <strong>creates it</strong> (<code>PUBLIC_IP</code> from host <code>eth0</code>, random admin password printed in logs)</li>
-<li>If <code>.env</code> already exists, it is <strong>never overwritten</strong></li>
-<li>SQLite lives on volume <code>rbi-data</code></li>
-<li>Podman socket is mounted so browser containers can be created</li></ul>
-<p>Use <code>--network=host</code> so eth0/WebRTC ports are the real host network.</p>
+<p><strong>Preferred path:</strong> blank-box install scripts. They install Podman, log into GHCR, write <code>/etc/browser-isolation/.env</code> once, and start the container with host networking + the Podman socket.</p>
+<div class="table-wrap"><table><thead><tr><th>Role</th><th>Script</th></tr></thead><tbody><tr><td>Portal + local worker</td><td><a href="../deploy/podman/install-orchestrator.sh"><code>deploy/podman/install-orchestrator.sh</code></a></td></tr>
+<tr><td>Extra browser host</td><td><a href="../deploy/podman/install-worker.sh"><code>deploy/podman/install-worker.sh</code></a></td></tr></tbody></table></div>
+<p>Index of helpers: <a href="#home" data-nav="home">../deploy/podman/README.md</a>.</p>
+<h3 id="what-the-container-expects">What the container expects</h3>
+<ul><li>Host <code>/etc/browser-isolation</code> → <code>/config</code> (<code>.env</code> lives here)</li>
+<li>Volume <code>rbi-data</code> → <code>/data</code> (SQLite)</li>
+<li>Host <code>/run/podman/podman.sock</code> → same path in the container (<code>DOCKER_SOCKET=/run/podman/podman.sock</code>)</li>
+<li><code>--network=host</code> so eth0 / WebRTC ports are the real host network</li>
+<li><code>--privileged</code> + <code>--security-opt label=disable</code> (installers set these so Podman-in-Podman works on Alma)</li></ul>
+<p>On first start, if <code>/config/.env</code> is missing, the <strong>entrypoint</strong> creates it (random admin password in logs). Installers usually create <code>.env</code> <strong>before</strong> first start with a known password instead.</p>
 <hr />
 <h1 id="part-1-github-once-then-automatic">Part 1 — GitHub (once, then automatic)</h1>
 <h2 id="1-push-this-repo-to-main">1. Push this repo to <code>main</code></h2>
@@ -1257,26 +1350,41 @@ podman compose up -d --build</code></pre>
 <li><strong>Read and write permissions</strong> → <strong>Save</strong></li></ol>
 <h2 id="3-wait-for-green-publish-image">3. Wait for green <strong>Publish image</strong></h2>
 <p><strong>Actions</strong> → <strong>Publish image</strong> → green (or <strong>Run workflow</strong> on <code>main</code>)</p>
-<h2 id="4-create-a-pull-token">4. Create a pull token</h2>
+<p>Workflow: <a href="../.github/workflows/publish-image.yml"><code>.github/workflows/publish-image.yml</code></a> Builds <a href="../Dockerfile"><code>Dockerfile</code></a> (<code>node:26-bookworm-slim</code>) and pushes <code>ghcr.io/thecookies/browserisolation:latest</code> plus a short SHA tag.</p>
+<h2 id="4-create-a-pull-token-only-if-you-are-not-using-the-install-scripts">4. Create a pull token (only if you are <strong>not</strong> using the install scripts)</h2>
+<p>Install scripts for this deployment already contain GHCR credentials. For a manual/custom host:</p>
 <ol><li>https://github.com/settings/tokens → <strong>Generate new token (classic)</strong></li>
 <li>Check <strong><code>read:packages</code></strong></li>
 <li>Copy the <code>ghp_...</code> token</li></ol>
 <p>Image name:</p>
 <pre class="code-block" data-lang="text"><code>ghcr.io/thecookies/browserisolation:latest</code></pre>
 <hr />
-<h1 id="part-2-alma-linux-entire-install">Part 2 — Alma Linux (entire install)</h1>
+<h1 id="part-2-alma-linux-orchestrator-blank-box">Part 2 — Alma Linux orchestrator (blank box)</h1>
+<h2 id="recommended-install-script">Recommended: install script</h2>
+<p>Copy <code>install-orchestrator.sh</code> onto the host (or pipe it from the image after a one-shot pull/login), then:</p>
+<pre class="code-block" data-lang="bash"><code>sudo bash install-orchestrator.sh</code></pre>
+<p>From GHCR (after the host can pull, or using credentials baked into the script):</p>
+<pre class="code-block" data-lang="bash"><code>sudo podman run --rm --entrypoint cat \
+  ghcr.io/thecookies/browserisolation:latest /deploy/install-orchestrator.sh | sudo bash</code></pre>
+<p>What it does:</p>
+<ol><li>Installs/enables Podman + <code>podman.socket</code></li>
+<li>Logs into GHCR and pulls <code>:latest</code></li>
+<li>Creates <code>/etc/browser-isolation/.env</code> on first run (<code>BROWSER_NETWORK_MODE=host</code>, <code>DOCKER_SOCKET=/run/podman/podman.sock</code>, enroll token, etc.)</li>
+<li>Starts <code>browser-isolation</code> with <code>--network=host --privileged</code> and the socket mount above</li>
+<li>Opens firewall ports <code>8080/tcp</code> and <code>52000-52099</code> tcp/udp when <code>firewall-cmd</code> exists</li></ol>
+<h3 id="first-login">First login</h3>
+<div class="table-wrap"><table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td>URL</td><td><code>http://YOUR_ETH0_IP:8080</code></td></tr>
+<tr><td>User</td><td><code>admin</code></td></tr>
+<tr><td>Password</td><td><code>BrowserIsolation-Admin1</code> (also written to <code>/etc/browser-isolation/admin-password.txt</code>)</td></tr></tbody></table></div>
+<p>Re-running the script updates the image and recreates the container; it <strong>keeps</strong> an existing <code>.env</code>.</p>
+<h2 id="advanced-manual-podman-run">Advanced: manual <code>podman run</code></h2>
+<p>Only if you are not using the installer. Match these flags — older docs that mounted the socket as <code>/var/run/docker.sock</code> fight the entrypoint (which sets <code>DOCKER_SOCKET=/run/podman/podman.sock</code> in <code>/config/.env</code>).</p>
 <pre class="code-block" data-lang="bash"><code>sudo dnf install -y podman
 sudo systemctl enable --now podman.socket
 
-# Persistent GHCR login (needed for private pulls)
 mkdir -p /etc/containers /etc/browser-isolation
-read -s GHCR_TOKEN
-echo &quot;$GHCR_TOKEN&quot; | sudo podman login ghcr.io -u YOUR_GITHUB_USERNAME \
-  --authfile /etc/containers/auth.json --password-stdin
-unset GHCR_TOKEN
-sudo chmod 600 /etc/containers/auth.json
+# podman login ghcr.io … --authfile /etc/containers/auth.json
 
-# Pull + run (self-creates /etc/browser-isolation/.env on first boot)
 sudo podman pull --authfile /etc/containers/auth.json \
   ghcr.io/thecookies/browserisolation:latest
 
@@ -1284,34 +1392,34 @@ sudo podman run -d \
   --name browser-isolation \
   --restart=always \
   --network=host \
+  --privileged \
   --security-opt label=disable \
   -v /etc/browser-isolation:/config:Z \
   -v rbi-data:/data:Z \
-  -v /run/podman/podman.sock:/var/run/docker.sock \
-  -e DOCKER_SOCKET=/var/run/docker.sock \
+  -v /run/podman/podman.sock:/run/podman/podman.sock \
+  -e DOCKER_SOCKET=/run/podman/podman.sock \
+  -e RBI_ROLE=orchestrator \
   ghcr.io/thecookies/browserisolation:latest</code></pre>
-<p>Or use the helper from a checkout / scp:</p>
-<pre class="code-block" data-lang="bash"><code>sudo bash deploy/podman/run.sh</code></pre>
-<h3 id="first-login-password">First login password</h3>
+<p>If you did <strong>not</strong> pre-create <code>.env</code>, grab the random password from logs:</p>
 <pre class="code-block" data-lang="bash"><code>sudo podman logs browser-isolation 2&gt;&amp;1 | grep -A2 &quot;Portal admin password&quot;</code></pre>
-<p>Open <code>http://YOUR_ETH0_IP:8080</code> — user <code>admin</code>, password from the logs.</p>
-<p>Optional firewall:</p>
+<p>Optional firewall (installers do this automatically):</p>
 <pre class="code-block" data-lang="bash"><code>sudo firewall-cmd --permanent --add-port=8080/tcp
 sudo firewall-cmd --permanent --add-port=52000-52099/tcp
 sudo firewall-cmd --permanent --add-port=52000-52099/udp
 sudo firewall-cmd --reload</code></pre>
 <hr />
 <h1 id="updates-keeps-settings-database">Updates (keeps settings + database)</h1>
+<pre class="code-block" data-lang="bash"><code>sudo bash install-orchestrator.sh</code></pre>
+<p>Or manually:</p>
 <pre class="code-block" data-lang="bash"><code>sudo podman pull --authfile /etc/containers/auth.json \
   ghcr.io/thecookies/browserisolation:latest
 sudo podman rm -f browser-isolation
-sudo bash /path/to/run.sh --no-pull</code></pre>
-<p>Or the same <code>podman run ...</code> command again after <code>podman rm -f browser-isolation</code>.</p>
+# re-run the same podman run / installer</code></pre>
 <p><code>/etc/browser-isolation/.env</code> and volume <code>rbi-data</code> stay.</p>
 <p>To force a brand-new <code>.env</code> (new password / IP):</p>
-<pre class="code-block" data-lang="bash"><code>sudo rm /etc/browser-isolation/.env
+<pre class="code-block" data-lang="bash"><code>sudo rm /etc/browser-isolation/.env /etc/browser-isolation/admin-password.txt
 sudo podman rm -f browser-isolation
-# run the container again</code></pre>
+sudo bash install-orchestrator.sh</code></pre>
 <hr />
 <h1 id="useful-commands">Useful commands</h1>
 <pre class="code-block" data-lang="bash"><code>sudo podman ps
@@ -1321,25 +1429,29 @@ sudo nano /etc/browser-isolation/.env   # edit settings, then:
 sudo podman restart browser-isolation</code></pre>
 <hr />
 <h1 id="troubleshooting">Troubleshooting</h1>
-<div class="table-wrap"><table><thead><tr><th>Problem</th><th>Fix</th></tr></thead><tbody><tr><td>pull denied</td><td><code>read:packages</code> token + <code>--authfile /etc/containers/auth.json</code></td></tr>
-<tr><td>no admin password in logs</td><td><code>.env</code> already existed; see <code>/etc/browser-isolation/.env</code> (<code>AUTH_USERS=</code>)</td></tr>
-<tr><td><code>EACCES /var/run/docker.sock</code></td><td>recreate with <code>--security-opt label=disable</code> (SELinux); ensure <code>podman.socket</code> is up</td></tr>
-<tr><td><code>websocket closed</code> / stuck on Connecting</td><td>Set <code>BROWSER_NETWORK_MODE=host</code> in <code>/etc/browser-isolation/.env</code> (Podman published ports often unreachable from Hyper-V Default Switch). Redeploy latest image, remove old <code>rbi-*</code> containers, retry.</td></tr>
-<tr><td>wrong PUBLIC_IP</td><td>edit <code>/etc/browser-isolation/.env</code> or delete <code>.env</code> and recreate container</td></tr>
-<tr><td>old image without entrypoint</td><td>wait for green <strong>Publish image</strong>, then <code>podman pull</code> again</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Problem</th><th>Fix</th></tr></thead><tbody><tr><td>pull denied</td><td><code>read:packages</code> token + <code>--authfile /etc/containers/auth.json</code> (or re-run installer)</td></tr>
+<tr><td>no admin password in logs</td><td><code>.env</code> already existed; see <code>/etc/browser-isolation/.env</code> (<code>AUTH_USERS=</code>) or <code>admin-password.txt</code></td></tr>
+<tr><td><code>EACCES</code> / socket errors</td><td>Recreate with <code>--privileged --security-opt label=disable</code>; socket must be <code>/run/podman/podman.sock</code> on <strong>both</strong> sides; ensure <code>podman.socket</code> is up</td></tr>
+<tr><td><code>websocket closed</code> / stuck on Connecting</td><td>Confirm <code>BROWSER_NETWORK_MODE=host</code> in <code>.env</code> (installer default). Remove stale <code>rbi-*</code> containers and retry</td></tr>
+<tr><td>wrong <code>PUBLIC_IP</code></td><td>Edit <code>/etc/browser-isolation/.env</code> or delete <code>.env</code> and recreate</td></tr>
+<tr><td>old image</td><td>Wait for green <strong>Publish image</strong>, then re-run installer</td></tr></tbody></table></div>
 <hr />
-<h1 id="extra-worker-hosts-later">Extra worker hosts later</h1>
+<h1 id="extra-worker-hosts">Extra worker hosts</h1>
 <p>On each new Alma worker host:</p>
 <pre class="code-block" data-lang="bash"><code>sudo bash install-worker.sh
-# or from image:
-sudo podman run --rm --entrypoint cat \
+# Prompt: Orchestrator host or URL  →  e.g. 192.168.1.96</code></pre>
+<p>Or:</p>
+<pre class="code-block" data-lang="bash"><code>ORCHESTRATOR=192.168.1.96 sudo -E bash install-worker.sh</code></pre>
+<p>From the image:</p>
+<pre class="code-block" data-lang="bash"><code>sudo podman run --rm --entrypoint cat \
   ghcr.io/thecookies/browserisolation:latest /deploy/install-worker.sh | sudo bash</code></pre>
-<p>Prompts only for the orchestrator host/IP. Configures Podman, GHCR login, image pulls, enroll, and starts the worker.</p>
-<p>Orchestrator install (blank box):</p>
-<pre class="code-block" data-lang="bash"><code>sudo bash install-orchestrator.sh</code></pre>
-<p>See <a href="#home" data-nav="home">deploy/podman/README.md</a>.</p>
+<p>The worker installer:</p>
+<ul><li>Does <strong>not</strong> pull Neko browser images (the orchestrator pulls enabled browsers after <strong>Admin → Workers → Authorize</strong>)</li>
+<li>Enrolls with <code>WORKER_ENROLL_TOKEN</code> (shared with the orchestrator <code>.env</code>)</li>
+<li>Starts <code>browser-isolation-worker</code> with host network + Podman socket</li></ul>
+<p>See <a href="#workers" data-nav="workers">WORKERS.md</a> and <a href="#home" data-nav="home">deploy/podman/README.md</a>.</p>
 <hr />
-<p>Related: <a href="#podman" data-nav="podman">PODMAN.md</a>, <a href="#deployment" data-nav="deployment">DEPLOYMENT.md</a>.</p>
+<p>Related: <a href="#podman" data-nav="podman">PODMAN.md</a>, <a href="#deployment" data-nav="deployment">DEPLOYMENT.md</a>, <a href="#architecture" data-nav="architecture">ARCHITECTURE.md</a>.</p>
         </div>
       </article>
 
@@ -1351,78 +1463,72 @@ sudo podman run --rm --entrypoint cat \
         </header>
         <div class="doc-body">
           <h1 id="podman-github-container-registry-ghcr">Podman + GitHub Container Registry (GHCR)</h1>
-<p><strong>Start here (super simple Alma deploy):</strong> <strong><a href="#setup-ghcr-alma" data-nav="setup-ghcr-alma">SETUP_GHCR_ALMA.md</a></strong> <code>podman login</code> → <code>podman run --network=host</code> with <code>/config</code> + <code>/data</code> + socket mounts. The container creates <code>.env</code> on first boot.</p>
-<p>Run Browser Isolation with <strong>Podman</strong> instead of Docker, publish the app image from GitHub Actions to a <strong>private</strong> GHCR package, and recreate the container to pick up <code>:latest</code>.</p>
+<p><strong>Start here (Alma blank-box):</strong> <strong><a href="#setup-ghcr-alma" data-nav="setup-ghcr-alma">SETUP_GHCR_ALMA.md</a></strong> <strong>Installer index:</strong> <strong><a href="#home" data-nav="home">../deploy/podman/README.md</a></strong></p>
+<p>Run Browser Isolation with <strong>Podman</strong>, publish the app image from GitHub Actions to a <strong>private</strong> GHCR package, and re-run the install script (or recreate the container) to pick up <code>:latest</code>.</p>
 <p>Your private GitHub <strong>code</strong> repo is not a container registry. Pulls use:</p>
 <pre class="code-block" data-lang="text"><code>ghcr.io/thecookies/browserisolation:latest</code></pre>
-<p>The orchestrator still talks to a Docker-compatible API (dockerode). On Podman that is the <strong>rootful</strong> <code>podman.socket</code>, mounted into the container as <code>/var/run/docker.sock</code>.</p>
+<p>The orchestrator still talks to a Docker-compatible API (dockerode). On Podman that is the <strong>rootful</strong> <code>podman.socket</code>. Production installers mount it at the <strong>same path inside the container</strong>:</p>
+<pre class="code-block" data-lang="text"><code>/run/podman/podman.sock  →  DOCKER_SOCKET=/run/podman/podman.sock</code></pre>
 <hr />
 <h2 id="what-you-will-end-up-with">What you will end up with</h2>
 <div class="table-wrap"><table><thead><tr><th>Piece</th><th>Role</th></tr></thead><tbody><tr><td>GitHub Actions workflow</td><td>Builds <a href="../Dockerfile"><code>Dockerfile</code></a> on every push to <code>main</code> and pushes <code>:latest</code> + short SHA tags</td></tr>
-<tr><td>GHCR package</td><td>Private image store for the remote host</td></tr>
-<tr><td>Container entrypoint</td><td>Create-once <code>/config/.env</code>, then start orchestrator</td></tr>
-<tr><td>Host mounts</td><td><code>/config</code>, <code>rbi-data</code>, <code>podman.sock</code>; <code>--network=host</code></td></tr>
-<tr><td>Extra hosts (later)</td><td>Same image with <code>RBI_ROLE=worker</code></td></tr></tbody></table></div>
+<tr><td>GHCR package</td><td>Private image store for remote hosts</td></tr>
+<tr><td>Install scripts</td><td><code>install-orchestrator.sh</code> / <code>install-worker.sh</code> (canonical Alma path)</td></tr>
+<tr><td>Container entrypoint</td><td>Create-once <code>/config/.env</code> if missing, then start portal or worker via <code>RBI_ROLE</code></td></tr>
+<tr><td>Host mounts</td><td><code>/config</code>, <code>rbi-data</code> (orchestrator), <code>podman.sock</code>; <code>--network=host</code></td></tr>
+<tr><td>Extra hosts</td><td>Same image with <code>RBI_ROLE=worker</code> + enroll</td></tr></tbody></table></div>
+<p><strong>Quadlet</strong> (<code>.container</code> units under <code>deploy/podman/</code>) remains as an optional/legacy reference. Installers stop old Quadlet services when present. Prefer the install scripts for new hosts.</p>
 <hr />
 <h2 id="part-a-publish-the-image-to-ghcr-first-time">Part A — Publish the image to GHCR (first time)</h2>
 <h3 id="1-push-the-workflow">1. Push the workflow</h3>
-<p>The workflow lives at <a href="../.github/workflows/publish-image.yml"><code>.github/workflows/publish-image.yml</code></a>. Merge it to <code>main</code> (or push <code>main</code> if you are already on it).</p>
+<p>The workflow lives at <a href="../.github/workflows/publish-image.yml"><code>.github/workflows/publish-image.yml</code></a>. Merge/push to <code>main</code>.</p>
 <p>It uses the built-in <code>GITHUB_TOKEN</code> with <code>packages: write</code>. You do <strong>not</strong> need to create a secret just to publish from this repo.</p>
+<p>Current action pins (Node 24–native runners):</p>
+<div class="table-wrap"><table><thead><tr><th>Action</th><th>Version</th></tr></thead><tbody><tr><td><code>actions/checkout</code></td><td>v7</td></tr>
+<tr><td><code>docker/login-action</code></td><td>v4</td></tr>
+<tr><td><code>docker/metadata-action</code></td><td>v6</td></tr>
+<tr><td><code>docker/setup-buildx-action</code></td><td>v4</td></tr>
+<tr><td><code>docker/build-push-action</code></td><td>v7</td></tr></tbody></table></div>
+<p>Image build base: <code>node:26-bookworm-slim</code> (see <a href="../Dockerfile"><code>Dockerfile</code></a>).</p>
 <h3 id="2-watch-the-action">2. Watch the Action</h3>
 <ol><li>Open the repo on GitHub → <strong>Actions</strong>.</li>
 <li>Select <strong>Publish image</strong>.</li>
 <li>Open the latest run and wait until it is green.</li></ol>
-<p>If it fails on permissions, check <strong>Settings → Actions → General → Workflow permissions</strong> and allow read/write for <code>GITHUB_TOKEN</code> (or keep the workflow’s explicit <code>packages: write</code>).</p>
+<p>If it fails on permissions, check <strong>Settings → Actions → General → Workflow permissions</strong> and allow read/write for <code>GITHUB_TOKEN</code>.</p>
 <h3 id="3-find-the-package">3. Find the package</h3>
 <ol><li>Open the repo → right sidebar <strong>Packages</strong>, or your org/user → <strong>Packages</strong>.</li>
-<li>Open <strong>browserisolation</strong> (name may appear as <code>browserisolation</code>).</li>
+<li>Open <strong>browserisolation</strong>.</li>
 <li>Confirm the image URI is <code>ghcr.io/thecookies/browserisolation</code>.</li>
-<li>Under package settings, keep visibility <strong>Private</strong> (default for private repos).</li></ol>
-<p>Optional but useful: under package <strong>Package settings → Manage Actions access</strong>, ensure this repository has a role that can write (the publishing workflow needs that once; pull from a remote uses a PAT — next step).</p>
-<h3 id="4-create-a-pull-token-for-the-remote-host">4. Create a pull token for the remote host</h3>
-<p>The remote machine is not GitHub Actions, so it needs credentials to pull a private package.</p>
-<ol><li>GitHub → profile → <strong>Settings → Developer settings → Personal access tokens</strong>.</li>
-<li>Create a <strong>classic</strong> token with at least:</li></ol>
-<p>- <code>read:packages</code></p>
-<ol><li>Copy the token once. Store it only on the remote host (or a secret manager). Do not commit it.</li></ol>
-<p>Fine-grained tokens can work if granted <strong>read</strong> access to the package (and the repo if your org requires it). Classic <code>read:packages</code> is the simplest first path.</p>
+<li>Keep visibility <strong>Private</strong>.</li></ol>
+<h3 id="4-create-a-pull-token-manual-hosts-only">4. Create a pull token (manual hosts only)</h3>
+<p>Install scripts for this deployment already include GHCR login. For a custom machine:</p>
+<ol><li>GitHub → <strong>Settings → Developer settings → Personal access tokens</strong>.</li>
+<li>Classic token with at least <code>read:packages</code>.</li>
+<li>Store it only on the remote host (or a secret manager). Do not commit it.</li></ol>
 <hr />
 <h2 id="part-b-remote-host-orchestrator-local-worker">Part B — Remote host (orchestrator + local worker)</h2>
 <p>Full Alma checklist: <a href="#setup-ghcr-alma" data-nav="setup-ghcr-alma">SETUP_GHCR_ALMA.md</a>.</p>
-<pre class="code-block" data-lang="bash"><code>sudo dnf install -y podman
-sudo systemctl enable --now podman.socket
-echo &quot;$GHCR_TOKEN&quot; | sudo podman login ghcr.io -u YOUR_GITHUB_USERNAME \
-  --authfile /etc/containers/auth.json --password-stdin
-sudo mkdir -p /etc/browser-isolation
-sudo podman run -d --name browser-isolation --restart=always --network=host \
-  --security-opt label=disable \
-  -v /etc/browser-isolation:/config:Z \
-  -v rbi-data:/data:Z \
-  -v /run/podman/podman.sock:/var/run/docker.sock \
-  ghcr.io/thecookies/browserisolation:latest
-sudo podman logs browser-isolation | grep &quot;Portal admin password&quot;</code></pre>
-<p>After a new GHCR publish: pull <code>:latest</code>, <code>podman rm -f browser-isolation</code>, run the same <code>podman run</code> again (<code>.env</code> + data kept).</p>
+<pre class="code-block" data-lang="bash"><code>sudo bash deploy/podman/install-orchestrator.sh
+# or pipe from the published image — see SETUP_GHCR_ALMA.md</code></pre>
+<p>After a new GHCR publish, re-run the same script (keeps <code>/etc/browser-isolation/.env</code> + <code>rbi-data</code>).</p>
 <hr />
-<h2 id="part-c-extra-worker-hosts-later">Part C — Extra worker hosts (later)</h2>
-<p>Do <strong>not</strong> install <code>browser-isolation.container</code> on these machines.</p>
-<ol><li>Same Podman + <code>podman.socket</code> + <code>podman login ghcr.io</code> steps as Part B.</li>
-<li>Env file with at least:</li></ol>
-<pre class="code-block" data-lang="bash"><code>WORKER_ID=edge1
-WORKER_TOKEN=long-random-secret
-WORKER_PORT=8090
-PUBLIC_IP=10.0.0.5
-WEBRTC_PORT_RANGE=52000-52099
-DOCKER_SOCKET=/var/run/docker.sock</code></pre>
-<ol><li>Install the worker unit + network (no data volume required):</li></ol>
+<h2 id="part-c-extra-worker-hosts">Part C — Extra worker hosts</h2>
+<pre class="code-block" data-lang="bash"><code>sudo bash deploy/podman/install-worker.sh
+# Prompt: Orchestrator host or URL
+# Or: ORCHESTRATOR=10.0.0.2 sudo -E bash install-worker.sh</code></pre>
+<p>Then on the portal: <strong>Admin → Workers → Authorize</strong>. The orchestrator pulls enabled Neko images onto that host after authorize (the worker installer does <strong>not</strong> pre-pull browsers).</p>
+<p>Details: <a href="#workers" data-nav="workers">WORKERS.md</a>.</p>
+<h3 id="legacy-quadlet-optional">Legacy Quadlet (optional)</h3>
+<p>If you still want systemd Quadlet units instead of <code>podman run</code>:</p>
 <pre class="code-block" data-lang="bash"><code>sudo cp deploy/podman/browser-isolation-worker.container \
         deploy/podman/rbi-browsers.network \
         /etc/containers/systemd/
 sudo systemctl daemon-reload
 sudo systemctl enable --now browser-isolation-worker.service</code></pre>
-<ol><li>Register the worker on the portal: <strong>Admin → Workers</strong>, or set <code>WORKERS=</code> on the orchestrator host. Details: <a href="#workers" data-nav="workers">WORKERS.md</a>.</li></ol>
+<p>Prefer aligning with the installer’s host-network + <code>/run/podman/podman.sock</code> conventions; older Quadlet samples may still mention <code>/var/run/docker.sock</code>.</p>
 <hr />
 <h2 id="compose-alternative-laptop-quick-test">Compose alternative (laptop / quick test)</h2>
-<p>Quadlet is the recommended production path. For a quick stack from a git checkout:</p>
+<p>For a quick stack from a git checkout (not the Alma blank-box path):</p>
 <pre class="code-block" data-lang="bash"><code>cp .env.example .env
 # edit PUBLIC_IP, etc.
 
@@ -1431,20 +1537,23 @@ podman compose up -d --build
 
 # Docker Engine instead of Podman:
 # CONTAINER_SOCKET=/var/run/docker.sock docker compose up -d --build</code></pre>
-<p><a href="../docker-compose.yml"><code>docker-compose.yml</code></a> defaults <code>CONTAINER_SOCKET</code> to <code>/run/podman/podman.sock</code> and still supports <code>build:</code> for local images.</p>
+<p><a href="../docker-compose.yml"><code>docker-compose.yml</code></a> defaults <code>CONTAINER_SOCKET</code> to <code>/run/podman/podman.sock</code> and supports <code>build:</code> for local images. The container <strong>entrypoint</strong> still runs; Compose can override role/command for the worker profile.</p>
 <p>Worker-only:</p>
 <pre class="code-block" data-lang="bash"><code>podman compose --profile worker up -d worker</code></pre>
 <hr />
 <h2 id="troubleshooting">Troubleshooting</h2>
-<div class="table-wrap"><table><thead><tr><th>Symptom</th><th>Likely fix</th></tr></thead><tbody><tr><td><code>denied</code> / <code>unauthorized</code> on pull</td><td><code>podman login ghcr.io</code> with a token that has <code>read:packages</code>; use <code>sudo</code> if the service runs rootful</td></tr>
+<div class="table-wrap"><table><thead><tr><th>Symptom</th><th>Likely fix</th></tr></thead><tbody><tr><td><code>denied</code> / <code>unauthorized</code> on pull</td><td><code>podman login ghcr.io</code> with <code>read:packages</code>; use <code>sudo</code> + <code>--authfile</code> if the service runs rootful</td></tr>
 <tr><td>Package not found after first Action</td><td>Wait for a green <strong>Publish image</strong> run; check org package visibility</td></tr>
-<tr><td>Orchestrator up but cannot create browsers</td><td><code>podman.socket</code> not running; socket not mounted; SELinux denying socket (<code>sudo setsebool -P container_manage_cgroup on</code> on some RHEL setups)</td></tr>
-<tr><td>WebRTC fails remotely</td><td>Wrong <code>PUBLIC_IP</code>; firewall blocking <code>52000-52099</code> UDP/TCP</td></tr>
-<tr><td>Unit starts with old image</td><td>Confirm <code>Pull=always</code> in the <code>.container</code> file; <code>systemctl restart browser-isolation.service</code></td></tr></tbody></table></div>
+<tr><td>Orchestrator up but cannot create browsers</td><td><code>podman.socket</code> not running; socket not mounted at <code>/run/podman/podman.sock</code>; SELinux — installers use <code>--privileged</code> + <code>label=disable</code></td></tr>
+<tr><td>WebRTC fails remotely</td><td>Wrong <code>PUBLIC_IP</code>; firewall blocking <code>52000-52099</code> UDP/TCP; need <code>BROWSER_NETWORK_MODE=host</code> on Alma</td></tr>
+<tr><td>Unit / container starts with old image</td><td>Re-run <code>install-orchestrator.sh</code> / <code>install-worker.sh</code></td></tr></tbody></table></div>
 <hr />
 <h2 id="related-files">Related files</h2>
 <div class="table-wrap"><table><thead><tr><th>Path</th><th>Purpose</th></tr></thead><tbody><tr><td><a href="../.github/workflows/publish-image.yml"><code>.github/workflows/publish-image.yml</code></a></td><td>CI build/push to GHCR</td></tr>
-<tr><td><a href="../deploy/podman/"><code>deploy/podman/</code></a></td><td>Quadlet units</td></tr>
+<tr><td><a href="../deploy/podman/install-orchestrator.sh"><code>deploy/podman/install-orchestrator.sh</code></a></td><td>Canonical Alma portal install</td></tr>
+<tr><td><a href="../deploy/podman/install-worker.sh"><code>deploy/podman/install-worker.sh</code></a></td><td>Canonical Alma worker install</td></tr>
+<tr><td><a href="../deploy/podman/entrypoint.sh"><code>deploy/podman/entrypoint.sh</code></a></td><td>Image entrypoint (<code>RBI_ROLE</code>)</td></tr>
+<tr><td><a href="../deploy/podman/"><code>deploy/podman/*.container</code></a></td><td>Optional Quadlet units</td></tr>
 <tr><td><a href="../docker-compose.yml"><code>docker-compose.yml</code></a></td><td>Compose for Podman/Docker</td></tr>
 <tr><td><a href="#deployment" data-nav="deployment">DEPLOYMENT.md</a></td><td>TLS, firewall, capacity</td></tr>
 <tr><td><a href="#workers" data-nav="workers">WORKERS.md</a></td><td>Multi-host workers</td></tr></tbody></table></div>
@@ -1462,31 +1571,63 @@ podman compose up -d --build
 <p>The portal (orchestrator) schedules isolated browser containers onto one or more <strong>worker</strong> hosts so load is not stuck on a single machine.</p>
 <h2 id="roles">Roles</h2>
 <div class="table-wrap"><table><thead><tr><th>Role</th><th>Runs</th><th>Needs</th></tr></thead><tbody><tr><td>Orchestrator</td><td>Portal UI, auth, SQLite, session proxy</td><td>Reachability to each worker agent URL</td></tr>
-<tr><td>Worker</td><td>Podman/Docker + Neko containers + WebRTC ports</td><td>Client-reachable <code>PUBLIC_IP</code> and open <code>WEBRTC_PORT_RANGE</code></td></tr></tbody></table></div>
+<tr><td>Worker</td><td>Same image, <code>RBI_ROLE=worker</code> + Podman/Docker + Neko + WebRTC ports</td><td>Client-reachable <code>PUBLIC_IP</code> and open <code>WEBRTC_PORT_RANGE</code></td></tr></tbody></table></div>
 <p>Single-node installs keep <code>LOCAL_WORKER_ENABLED=true</code> (default): the orchestrator is also worker <code>local</code>.</p>
 <h2 id="networking-model">Networking model</h2>
 <pre class="code-block" data-lang="text"><code>User browser --HTTPS--&gt; Orchestrator --HTTP/WS--&gt; Worker agent --HTTP/WS--&gt; Neko container
 User browser --WebRTC UDP/TCP--&gt; Worker PUBLIC_IP:webrtcPort</code></pre>
 <ul><li>Signaling and <code>/session/*/view</code> stay on the portal (cookie ACL).  </li>
 <li>Media goes directly to the worker that owns the session.  </li>
-<li>Do <strong>not</strong> expose the worker agent port to the public internet; restrict it to the orchestrator (or a private management network).</li></ul>
+<li>Do <strong>not</strong> expose the worker agent port to the public internet; restrict it to the orchestrator (or a private management network).  </li></ul>
+<p>(Alma <code>install-worker.sh</code> may open <code>8090/tcp</code> on the host firewall for private LAN reachability — still keep it off the public internet.)</p>
 <h2 id="worker-agent">Worker agent</h2>
-<div class="table-wrap"><table><thead><tr><th>Item</th><th>Value</th></tr></thead><tbody><tr><td>Entry</td><td><code>orchestrator</code> → <code>npm run start:worker</code> / Compose profile <code>worker</code></td></tr>
+<div class="table-wrap"><table><thead><tr><th>Item</th><th>Value</th></tr></thead><tbody><tr><td>Entry</td><td><code>RBI_ROLE=worker</code> → <code>dist/worker-main.js</code> (Compose profile <code>worker</code>, or <code>npm run start:worker</code>)</td></tr>
 <tr><td>Listen</td><td><code>WORKER_PORT</code> (default <code>8090</code>)</td></tr>
-<tr><td>Auth</td><td><code>Authorization: Bearer &lt;WORKER_TOKEN&gt;</code> on <code>/v1/*</code> except <code>/v1/health</code></td></tr></tbody></table></div>
+<tr><td>Auth</td><td><code>Authorization: Bearer &lt;token&gt;</code> on <code>/v1/*</code> except <code>/v1/health</code></td></tr></tbody></table></div>
 <p>Required env on each browser host:</p>
-<div class="table-wrap"><table><thead><tr><th>Variable</th><th>Purpose</th></tr></thead><tbody><tr><td><code>WORKER_TOKEN</code></td><td>Shared secret with the orchestrator</td></tr>
-<tr><td><code>WORKER_ID</code></td><td>Stable id shown in Admin (e.g. <code>edge-1</code>)</td></tr>
+<div class="table-wrap"><table><thead><tr><th>Variable</th><th>Purpose</th></tr></thead><tbody><tr><td><code>RBI_ROLE</code></td><td>Must be <code>worker</code> for the agent entrypoint</td></tr>
+<tr><td><code>WORKER_ENROLL_TOKEN</code></td><td>Shared enroll + agent Bearer for this deployment (preferred)</td></tr>
+<tr><td><code>WORKER_TOKEN</code></td><td>Legacy fallback if enroll token unset</td></tr>
+<tr><td><code>WORKER_ID</code></td><td>Stable id shown in Admin (installer derives from hostname)</td></tr>
+<tr><td><code>ORCHESTRATOR_URL</code></td><td>Portal base URL used for enroll (e.g. <code>http://10.0.0.2:8080</code>)</td></tr>
+<tr><td><code>WORKER_BASE_URL</code></td><td>How the portal reaches this agent (installer sets from host IP + port)</td></tr>
 <tr><td><code>PUBLIC_IP</code></td><td>ICE / NAT1TO1 address clients use for WebRTC to <strong>this</strong> host</td></tr>
-<tr><td><code>WEBRTC_PORT_RANGE</code></td><td>Mux ports published on this host</td></tr>
-<tr><td>Docker socket</td><td>Create/destroy Neko containers</td></tr>
-<tr><td><code>neko-policies</code></td><td>Compose mounts the repo policies directory read-only</td></tr></tbody></table></div>
+<tr><td><code>WEBRTC_PORT_RANGE</code></td><td>Mux ports on this host</td></tr>
+<tr><td><code>BROWSER_NETWORK_MODE</code></td><td>Use <code>host</code> on Alma installers</td></tr>
+<tr><td><code>DOCKER_SOCKET</code></td><td><code>/run/podman/podman.sock</code> on Alma</td></tr>
+<tr><td>Policies</td><td>Baked into the image under <code>orchestrator/neko-policies/</code></td></tr></tbody></table></div>
 <p>Agent implementation: <code>orchestrator/src/worker-main.ts</code> + <code>worker-agent/app.ts</code>. API inventory: <a href="API.md#worker-agent-v1">API.md</a>.</p>
-<h2 id="compose-on-a-browser-host">Compose on a browser host</h2>
-<p>Prefer Quadlet on production hosts: <a href="#podman" data-nav="podman">PODMAN.md</a> Part C.</p>
+<h2 id="self-enrollment-recommended">Self-enrollment (recommended)</h2>
+<p>On a new Alma/RHEL worker host:</p>
+<pre class="code-block" data-lang="bash"><code>sudo bash deploy/podman/install-worker.sh
+# Prompt: Orchestrator host or URL  →  e.g. 10.0.0.2  or  http://rbi.example.com:8080
+
+# Non-interactive:
+ORCHESTRATOR=10.0.0.2 sudo -E bash deploy/podman/install-worker.sh
+
+# From GHCR:
+sudo podman run --rm --entrypoint cat \
+  ghcr.io/thecookies/browserisolation:latest /deploy/install-worker.sh | sudo bash</code></pre>
+<p>The installer:</p>
+<ol><li>Installs Podman, fixes <code>podman.socket</code>, logs into GHCR, pulls the <strong>app</strong> image  </li>
+<li>Writes <code>/etc/browser-isolation/.env</code> for the worker role  </li>
+<li>Starts <code>browser-isolation-worker</code> (host network + socket)  </li>
+<li>Calls <code>POST /api/workers/enroll</code> → status <strong>Pending</strong>  </li>
+<li>Does <strong>not</strong> pull Neko browser images</li></ol>
+<p>Orchestrator requirement: same enroll secret in portal <code>.env</code>:</p>
+<pre class="code-block" data-lang="bash"><code>WORKER_ENROLL_TOKEN=…   # install-orchestrator / entrypoint write this on first boot</code></pre>
+<p>That same value is the <strong>worker agent Bearer token</strong> for every host. Enroll registers URL/IP/id only — it does <strong>not</strong> mint a per-worker random secret.</p>
+<p>Then open <strong>Admin → Workers</strong> and click <strong>Authorize</strong>. After authorize, the orchestrator pulls <strong>enabled</strong> Neko images onto that host. Use <strong>Deauthorize</strong> to stop scheduling without deleting the row.</p>
+<div class="table-wrap"><table><thead><tr><th>Status</th><th>Meaning</th></tr></thead><tbody><tr><td>Pending</td><td>Enrolled, not yet authorized (<code>enabled=false</code>, never seen)</td></tr>
+<tr><td>Online / Offline</td><td>Authorized; heartbeat within / outside ~45s</td></tr>
+<tr><td>Deauthorized</td><td>Previously seen, then disabled</td></tr></tbody></table></div>
+<p>Re-running <code>install-worker.sh</code> refreshes URL/IP and the worker <strong>auto-enrolls again on startup</strong>. Prior authorization is remembered in <code>worker_grants</code> (even if the worker row was removed), so you should not need to click Authorize again unless an admin previously Deauthorized that worker id.</p>
+<p>API: <code>POST /api/workers/enroll</code> with <code>Authorization: Bearer &lt;WORKER_ENROLL_TOKEN&gt;</code> (CSRF exempt).</p>
+<h2 id="compose-on-a-browser-host-laptop-lab">Compose on a browser host (laptop / lab)</h2>
+<p>Prefer Alma install scripts in production. For Compose:</p>
 <pre class="code-block" data-lang="bash"><code># In .env on that host:
 WORKER_ID=edge1
-WORKER_TOKEN=replace-me-with-a-long-secret
+WORKER_TOKEN=replace-me-with-a-long-secret   # or WORKER_ENROLL_TOKEN=
 PUBLIC_IP=10.0.0.5          # client-reachable
 WORKER_PORT=8090
 WEBRTC_PORT_RANGE=52000-52099
@@ -1494,27 +1635,12 @@ WEBRTC_PORT_RANGE=52000-52099
 
 podman compose --profile worker up -d worker
 # Docker: CONTAINER_SOCKET=/var/run/docker.sock docker compose --profile worker up -d worker</code></pre>
-<p>The <code>worker</code> service publishes <code>52000-52099</code> UDP+TCP by default. Edit the Compose port mappings if your range differs.</p>
-<h2 id="self-enrollment-recommended">Self-enrollment (recommended)</h2>
-<p>On a new Alma/RHEL worker host, run the bootstrap script. It asks <strong>only</strong> for the orchestrator host/IP, then installs Podman, logs into GHCR, pulls images, starts the worker agent, and registers itself as <strong>Pending</strong>.</p>
-<pre class="code-block" data-lang="bash"><code>sudo podman run --rm --entrypoint cat \
-  ghcr.io/thecookies/browserisolation:latest /deploy/install-worker.sh | sudo bash
-# Prompt: Orchestrator host or URL  →  e.g. 10.0.0.2  or  http://rbi.example.com:8080</code></pre>
-<p>Orchestrator requirement: set the same enroll secret as the script:</p>
-<pre class="code-block" data-lang="bash"><code>WORKER_ENROLL_TOKEN=rbi_enroll_k9m2Vx7Qp4Hs8nWc3YfL6tZa1Bd0EgR5</code></pre>
-<p>(Fresh installs via <code>deploy/podman/install.sh</code> / first-boot entrypoint already include this value.)</p>
-<p>That same value is the <strong>worker agent Bearer token</strong> for every host. Enroll registers URL/IP/id only — it does <strong>not</strong> mint a per-worker random secret (those used to desync after delete/reinstall).</p>
-<p>Then open <strong>Admin → Workers</strong> and click <strong>Authorize</strong>. Use <strong>Deauthorize</strong> to stop scheduling without deleting the row.</p>
-<div class="table-wrap"><table><thead><tr><th>Status</th><th>Meaning</th></tr></thead><tbody><tr><td>Pending</td><td>Enrolled, not yet authorized (<code>enabled=false</code>, never seen)</td></tr>
-<tr><td>Online / Offline</td><td>Authorized; heartbeat within / outside ~45s</td></tr>
-<tr><td>Deauthorized</td><td>Previously seen, then disabled</td></tr></tbody></table></div>
-<p>Re-running <code>install-worker.sh</code> refreshes URL/IP and the worker <strong>auto-enrolls again on startup</strong>. Prior authorization is remembered (even if the worker row was removed), so you should not need to click Authorize again unless an admin previously Deauthorized that worker id.</p>
-<p>API: <code>POST /api/workers/enroll</code> with <code>Authorization: Bearer &lt;WORKER_ENROLL_TOKEN&gt;</code>.</p>
+<p>The <code>worker</code> service publishes <code>52000-52099</code> UDP+TCP by default.</p>
 <h2 id="manual-env-registration-deprecated-fallback">Manual / env registration (deprecated fallback)</h2>
 <p><strong>Bootstrap via env</strong> (orchestrator host):</p>
 <pre class="code-block" data-lang="bash"><code>WORKERS=edge1|http://10.0.0.5:8090|10.0.0.5|replace-me-with-a-long-secret
 LOCAL_WORKER_ENABLED=false   # optional: control-plane-only portal</code></pre>
-<p><strong>Or Admin → Workers → Add worker</strong> with the same fields (<code>id</code>, agent URL, public IP, token). This form is deprecated in favor of <code>install-worker.sh</code> and will be removed in a later version.</p>
+<p><strong>Or Admin → Workers → Add worker</strong> with the same fields (<code>id</code>, agent URL, public IP, token). Prefer <code>install-worker.sh</code>; the form is kept as a fallback.</p>
 <p>The orchestrator polls <code>GET /v1/status</code> every <strong>15s</strong>. Workers with a fresh heartbeat (within ~45s) show as <strong>online</strong>.</p>
 <h2 id="placement-rules">Placement rules</h2>
 <p>Implemented in <code>workers/scheduler.ts</code> + <code>workers/placement.ts</code>:</p>
@@ -1529,15 +1655,16 @@ LOCAL_WORKER_ENABLED=false   # optional: control-plane-only portal</code></pre>
 <tr><td>Public → worker agent</td><td><strong>Deny</strong></td></tr></tbody></table></div>
 <h2 id="operational-tips">Operational tips</h2>
 <ul><li>Each host needs its <strong>own</strong> free WebRTC port range large enough for peak concurrent sessions on that host.  </li>
-<li>Image pulls: <strong>Admin → Browsers → Pull latest</strong> fans out to workers.  </li>
+<li>Image pulls: <strong>Admin → Browsers → Pull latest</strong> fans out to authorized workers; authorize also triggers pulls of enabled browsers.  </li>
 <li>Host metrics: <strong>Admin → Workers → status</strong> (<code>GET /api/admin/workers/:id/status</code>).  </li>
 <li>If a worker disappears, existing sessions on it become unreachable until the container host returns; the reaper still applies idle/max-age rules from the portal’s point of view (viewer count drops when the proxy cannot stay up).</li></ul>
 <h2 id="related-code">Related code</h2>
-<div class="table-wrap"><table><thead><tr><th>Path</th><th>Role</th></tr></thead><tbody><tr><td><code>orchestrator/src/workers/store.ts</code></td><td>SQLite <code>workers</code> + <code>profile_placements</code></td></tr>
+<div class="table-wrap"><table><thead><tr><th>Path</th><th>Role</th></tr></thead><tbody><tr><td><code>orchestrator/src/workers/store.ts</code></td><td>SQLite <code>workers</code> + <code>profile_placements</code> + <code>worker_grants</code></td></tr>
 <tr><td><code>orchestrator/src/workers/client.ts</code></td><td>HTTP client to <code>/v1</code></td></tr>
 <tr><td><code>orchestrator/src/workers/placement.ts</code></td><td>Create/remove/proxy abstraction</td></tr>
 <tr><td><code>orchestrator/src/workers/scheduler.ts</code></td><td>Pick + poller + online TTL</td></tr>
-<tr><td><code>docker-compose.yml</code> / <code>deploy/podman/</code></td><td><code>worker</code> profile or worker Quadlet</td></tr></tbody></table></div>
+<tr><td><code>deploy/podman/install-worker.sh</code></td><td>Canonical Alma worker bootstrap</td></tr>
+<tr><td><code>docker-compose.yml</code></td><td>Compose <code>worker</code> profile for labs</td></tr></tbody></table></div>
         </div>
       </article>
 
@@ -1555,35 +1682,41 @@ LOCAL_WORKER_ENABLED=false   # optional: control-plane-only portal</code></pre>
 <tr><td><code>subjectId</code></td><td>Stable ownership key for prefs + volumes</td><td><code>local:alice</code></td><td><code>saml:urn:oasis:…:alice@example.com</code></td></tr>
 <tr><td><code>profileStorageKey</code></td><td>Path-safe hash of <code>subjectId</code></td><td><code>a1b2…</code> (32 hex chars)</td><td>same derivation</td></tr></tbody></table></div>
 <p><strong>Rule:</strong> preferences and Docker volumes are keyed by <code>subjectId</code> (via <code>profileStorageKey</code>), never by display username alone.</p>
-<h2 id="local-auth-current">Local auth (current)</h2>
+<h2 id="local-auth">Local auth</h2>
 <p>Local accounts live in SQLite (<code>local_users</code>), not permanently in <code>.env</code>.</p>
 <ol><li>On first boot with an empty <code>local_users</code> table, <code>AUTH_USERS</code> seeds the database.</li>
 <li>After that, manage users in <strong>Admin → Users</strong> (add / role / reset password / delete).</li>
+<li>Local users can change their own password via <code>POST /api/auth/password</code> when <code>canChangePassword</code> is true on <code>/api/me</code>.</li>
 <li><code>orchestrator/src/auth/local-provider.ts</code> authenticates against the DB and returns:</li></ol>
 <pre class="code-block" data-lang="ts"><code>{ username, role, subjectId } // subjectId is local:&lt;username&gt;</code></pre>
-<p>Helpers live in <code>orchestrator/src/auth/identity.ts</code>. When SAML is added, keep this local store as an optional break-glass admin path or disable it via config.</p>
+<p>Helpers live in <code>orchestrator/src/auth/identity.ts</code>. Keep the local store as an optional break-glass admin path when SAML is enabled, or disable it via config later.</p>
+<h2 id="preferences">Preferences</h2>
+<p>Stored in SQLite <code>user_preferences</code> per <code>subject_id</code>:</p>
+<div class="table-wrap"><table><thead><tr><th>Field</th><th>Purpose</th></tr></thead><tbody><tr><td><code>persist_profile</code></td><td>Mount a named volume on next browser launch</td></tr>
+<tr><td><code>dark_mode</code></td><td>SPA theme preference</td></tr></tbody></table></div>
+<p>API: <code>GET</code> / <code>PUT /api/preferences</code> with <code>{ persistProfile?, darkMode? }</code>.</p>
 <h2 id="persistent-profiles">Persistent profiles</h2>
 <ol><li>Admin enables the feature with <code>PERSIST_PROFILES_ENABLED=true</code> (default).</li>
 <li>Each user may opt in via <strong>Dashboard → Persist browser settings</strong> (<code>PUT /api/preferences</code>).</li>
-<li>Preference is stored in SQLite <code>user_preferences.subject_id</code>.</li>
-<li>On launch with persistence on, the orchestrator mounts a <strong>Docker named volume</strong>:</li></ol>
-<p>``<code>text rbi-profile-&lt;profileStorageKey&gt;-&lt;browser&gt; </code>``</p>
-<p>Examples:</p>
-<p>- <code>rbi-profile-&lt;hash&gt;-chrome</code> - <code>rbi-profile-&lt;hash&gt;-firefox</code> - <code>rbi-profile-&lt;hash&gt;-brave</code></p>
-<ol><li>Volume target paths inside Neko containers (see Neko browser docs):</li></ol>
-<div class="table-wrap"><table><thead><tr><th>Browser</th><th>Container path</th></tr></thead><tbody><tr><td>chrome</td><td><code>/home/neko/.config/google-chrome</code></td></tr>
-<tr><td>brave</td><td><code>/home/neko/.config/brave</code></td></tr>
-<tr><td>firefox</td><td><code>/home/neko/.mozilla/firefox/profile.default</code></td></tr></tbody></table></div>
+<li>On launch with persistence on, the orchestrator mounts a <strong>named volume</strong>:</li></ol>
+<p>``<code>text rbi-profile-&lt;profileStorageKey&gt;-&lt;browserId&gt; </code>``</p>
+<p>Examples (browser ids match <code>neko-browsers.ts</code>):</p>
+<p>- <code>rbi-profile-&lt;hash&gt;-google-chrome</code> - <code>rbi-profile-&lt;hash&gt;-firefox</code> - <code>rbi-profile-&lt;hash&gt;-brave</code></p>
+<ol><li>Volume target paths inside Neko containers:</li></ol>
+<div class="table-wrap"><table><thead><tr><th>Browser id</th><th>Container path</th></tr></thead><tbody><tr><td><code>google-chrome</code></td><td><code>/home/neko/.config/google-chrome</code></td></tr>
+<tr><td><code>brave</code></td><td><code>/home/neko/.config/brave</code></td></tr>
+<tr><td><code>firefox</code></td><td><code>/home/neko/.mozilla/firefox/profile.default</code></td></tr></tbody></table></div>
 <ol><li>Persist-mode also uses <code>orchestrator/neko-policies/&lt;browser&gt;/policies.persist.json</code></li></ol>
 <p>so cookies/session data are not wiped on browser exit.</p>
-<p>Turning persistence <strong>off</strong> does not delete volumes (data remains if the user opts back in). Destroying a browser session removes the container only, not the profile volume.</p>
+<p>Turning persistence <strong>off</strong> does not delete volumes (data remains if the user opts back in). Destroying a browser session removes the container only, not the profile volume. Multi-host: volumes stick to the worker recorded in <code>profile_placements</code> (see <a href="#workers" data-nav="workers">WORKERS.md</a>).</p>
 <h3 id="inspecting-volumes">Inspecting volumes</h3>
-<pre class="code-block" data-lang="bash"><code>docker volume ls --filter label=rbi.managed=true
-docker volume inspect rbi-profile-&lt;key&gt;-chrome</code></pre>
+<pre class="code-block" data-lang="bash"><code>podman volume ls --filter label=rbi.managed=true
+podman volume inspect rbi-profile-&lt;key&gt;-google-chrome
+# Docker Engine: docker volume …</code></pre>
 <p>Labels on each volume:</p>
 <ul><li><code>rbi.managed=true</code></li>
 <li><code>rbi.subject_key=&lt;profileStorageKey&gt;</code></li>
-<li><code>rbi.browser=&lt;chrome|firefox|brave&gt;</code></li></ul>
+<li><code>rbi.browser=&lt;google-chrome|firefox|brave|…&gt;</code></li></ul>
 <h2 id="saml-sso-implemented">SAML / SSO (implemented)</h2>
 <p>Configure under <strong>Admin → Settings → SSO / SAML</strong> (or matching <code>.env</code> keys). Implementation lives in <code>orchestrator/src/auth/saml.ts</code> and auth routes.</p>
 <div class="table-wrap"><table><thead><tr><th>Setting</th><th>Purpose</th></tr></thead><tbody><tr><td><code>SAML_ENABLED</code></td><td>Master switch</td></tr>
@@ -1597,15 +1730,16 @@ docker volume inspect rbi-profile-&lt;key&gt;-chrome</code></pre>
 <h3 id="endpoints">Endpoints</h3>
 <div class="table-wrap"><table><thead><tr><th>Method</th><th>Path</th><th>Notes</th></tr></thead><tbody><tr><td><code>GET</code></td><td><code>/api/auth/methods</code></td><td><code>{ local, saml }</code> for the login page</td></tr>
 <tr><td><code>GET</code></td><td><code>/api/auth/saml/login</code></td><td>Redirects to the IdP</td></tr>
-<tr><td><code>POST</code></td><td><code>/api/auth/saml/acs</code></td><td>Assertion consumer (IdP POST)</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/auth/saml/acs</code></td><td>Assertion consumer (IdP POST; CSRF exempt)</td></tr>
 <tr><td><code>GET</code></td><td><code>/saml/metadata</code></td><td>SP metadata XML</td></tr></tbody></table></div>
-<p>Local username/password login remains available as break-glass. First SSO sign-in auto-provisions as <code>user</code> unless <code>SAML_ADMIN_GROUP</code> matches; SAML users are <strong>not</strong> inserted into <code>local_users</code> (Admin → Users stays local-only). Preferences and profile volumes still key on <code>subjectId</code> (<code>saml:…</code>).</p>
+<p>Local username/password login remains available as break-glass. First SSO sign-in auto-provisions as <code>user</code> unless <code>SAML_ADMIN_GROUP</code> matches; SAML users are <strong>not</strong> inserted into <code>local_users</code> (Admin → Users stays local-only). <code>canChangePassword</code> is false for SAML subjects. Preferences and profile volumes still key on <code>subjectId</code> (<code>saml:…</code>).</p>
 <p>Existing <code>local:…</code> profile volumes are not renamed automatically when the same people later sign in via SAML — keep legacy rows or run a one-off copy/rename using recomputed <code>profileStorageKey</code> values.</p>
 <h2 id="api-surface">API surface</h2>
-<div class="table-wrap"><table><thead><tr><th>Method</th><th>Path</th><th>Notes</th></tr></thead><tbody><tr><td><code>GET</code></td><td><code>/api/me</code></td><td>Includes <code>subjectId</code>, <code>persistProfile</code>, <code>persistProfilesEnabled</code></td></tr>
-<tr><td><code>GET</code></td><td><code>/api/preferences</code></td><td>Current user's persist flag</td></tr>
-<tr><td><code>PUT</code></td><td><code>/api/preferences</code></td><td>Body <code>{ &quot;persistProfile&quot;: boolean }</code></td></tr></tbody></table></div>
-<p>Preference changes apply on the <strong>next</strong> browser launch (disconnect + launch again if a session is already running).</p>
+<div class="table-wrap"><table><thead><tr><th>Method</th><th>Path</th><th>Notes</th></tr></thead><tbody><tr><td><code>GET</code></td><td><code>/api/me</code></td><td>Includes <code>subjectId</code>, <code>persistProfile</code>, <code>darkMode</code>, <code>canChangePassword</code>, …</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/preferences</code></td><td>Current user's persist + dark-mode flags</td></tr>
+<tr><td><code>PUT</code></td><td><code>/api/preferences</code></td><td>Body <code>{ &quot;persistProfile&quot;?: boolean, &quot;darkMode&quot;?: boolean }</code></td></tr>
+<tr><td><code>POST</code></td><td><code>/api/auth/password</code></td><td>Local users only</td></tr></tbody></table></div>
+<p>Preference changes for profiles apply on the <strong>next</strong> browser launch (disconnect + launch again if a session is already running).</p>
         </div>
       </article>
 
@@ -1619,25 +1753,28 @@ docker volume inspect rbi-profile-&lt;key&gt;-chrome</code></pre>
           <h1 id="security-notes">Security notes</h1>
 <p>Browser Isolation is a security product. Treat defaults as intentional and review this page before widening trust boundaries.</p>
 <h2 id="threat-model-summary">Threat model (summary)</h2>
-<div class="table-wrap"><table><thead><tr><th>In scope</th><th>Out of scope (today)</th></tr></thead><tbody><tr><td>Malicious web content inside the isolated browser</td><td>Fully malicious admin with Docker socket access</td></tr>
+<div class="table-wrap"><table><thead><tr><th>In scope</th><th>Out of scope (today)</th></tr></thead><tbody><tr><td>Malicious web content inside the isolated browser</td><td>Fully malicious admin with Docker/Podman socket access</td></tr>
 <tr><td>Cross-user session access via the portal</td><td>Client-side malware on the user’s machine</td></tr>
 <tr><td>Casual data exfil via clipboard/files when disabled</td><td>Perfect anonymity / anti-fingerprinting of Neko itself</td></tr></tbody></table></div>
 <p>The user’s endpoint should only receive a media stream and input events, not render untrusted HTML/JS from the target site.</p>
 <h2 id="hardening-defaults">Hardening defaults</h2>
 <div class="table-wrap"><table><thead><tr><th>Control</th><th>Default</th><th>Notes</th></tr></thead><tbody><tr><td>Clipboard sync</td><td>Off (<code>ALLOW_CLIPBOARD=false</code>)</td><td>Admin → Settings → Security</td></tr>
 <tr><td>Downloads / file transfer</td><td>Off (<code>ALLOW_DOWNLOADS=false</code>)</td><td>Same</td></tr>
-<tr><td>CSRF</td><td>On for mutating <code>/api/*</code></td><td>SAML ACS exempt by necessity</td></tr>
+<tr><td>CSRF</td><td>On for mutating <code>/api/*</code></td><td>SAML ACS + worker enroll exempt by necessity</td></tr>
 <tr><td>Session cookie</td><td>httpOnly, SameSite=Lax</td><td>Set <code>COOKIE_SECURE</code> under HTTPS</td></tr>
 <tr><td>Browser ACL</td><td>Owner or admin</td><td>Enforced in API and view proxy</td></tr>
 <tr><td>Managed policies</td><td>Injected at create</td><td>Removes SponsorBlock force-install; keeps uBlock</td></tr>
-<tr><td>Worker agent</td><td>Bearer token</td><td>Must not be public</td></tr></tbody></table></div>
+<tr><td>Worker agent</td><td>Bearer token</td><td>Must not be public</td></tr>
+<tr><td>Alma installers</td><td><code>--privileged</code> + socket</td><td>Host-equivalent power — treat hosts as trusted</td></tr></tbody></table></div>
 <h2 id="trust-boundaries">Trust boundaries</h2>
 <pre class="code-block" data-lang="text"><code>[ User browser ]  --trusted UI/API--&gt;  [ Orchestrator ]
         |                                     |
-        | WebRTC (media)                      | Docker socket / worker Bearer
+        | WebRTC (media)                      | Docker/Podman socket / worker Bearer
         v                                     v
 [ Worker PUBLIC_IP ]  &lt;----- container ----&gt;  [ Neko / target web ]</code></pre>
-<ul><li>Anyone who can call the Docker socket or forge <code>WORKER_TOKEN</code> can run arbitrary containers on that host.  </li>
+<ul><li>Anyone who can call the container socket or forge <code>WORKER_ENROLL_TOKEN</code> / <code>WORKER_TOKEN</code> can run arbitrary containers on that host.  </li>
+<li>Install scripts for this deployment bake GHCR credentials and the enroll secret — rotate them if leaked, and do not publish script copies to untrusted places.  </li>
+<li><code>--privileged</code> + mounted <code>podman.sock</code> is intentional for Alma browser hosts; it is <strong>not</strong> a multi-tenant isolation boundary between co-admins on the same host.  </li>
 <li>Admins can join any session (by design); audit those actions.  </li>
 <li>SAML trust depends on IdP certificate configuration and <code>PUBLIC_BASE_URL</code>.</li></ul>
 <h2 id="operational-checklist">Operational checklist</h2>
@@ -1658,7 +1795,7 @@ docker volume inspect rbi-profile-&lt;key&gt;-chrome</code></pre>
 <p>This document is the map of <strong>what is built</strong>, <strong>why</strong>, and <strong>sensible next steps</strong> so a new contributor can prioritize work without rediscovering history from git alone.</p>
 <h2 id="vision">Vision</h2>
 <p>Provide a self-hosted remote browser isolation portal that is:</p>
-<ul><li>Simple to run (Compose + SQLite, no Kubernetes required)  </li>
+<ul><li>Simple to run (Compose or Alma install scripts + SQLite, no Kubernetes required)  </li>
 <li>Safe by default (ACL proxy, optional clipboard/downloads off, managed browser policies)  </li>
 <li>Extensible to multi-host capacity and enterprise SSO  </li></ul>
 <p>Users never browse the open web on their endpoint; they interact with a streamed desktop inside a disposable (or optionally persistent) container.</p>
@@ -1674,12 +1811,15 @@ docker volume inspect rbi-profile-&lt;key&gt;-chrome</code></pre>
 <hr />
 <h2 id="current-capabilities-checklist">Current capabilities (checklist)</h2>
 <h3 id="control-plane">Control plane</h3>
-<ul><li>[x] Fastify API + static SPA in one container  </li>
-<li>[x] SQLite persistence (sessions, users, settings, audit, workers)  </li>
+<ul><li>[x] Fastify API + static SPA in one container (Node 26 image)  </li>
+<li>[x] SQLite persistence (sessions, users, settings, audit, workers, grants)  </li>
 <li>[x] Admin settings overlay on <code>.env</code>  </li>
-<li>[x] Health endpoint for Compose  </li></ul>
+<li>[x] Health endpoint for Compose / installers  </li>
+<li>[x] Branding logo (Admin upload; served at <code>/branding/logo</code>)  </li>
+<li>[x] Dark mode preference per user  </li></ul>
 <h3 id="auth-identity">Auth &amp; identity</h3>
 <ul><li>[x] Local users in DB (<code>AUTH_USERS</code> seed once)  </li>
+<li>[x] Change own password (local users)  </li>
 <li>[x] SAML 2.0 SSO + SP metadata  </li>
 <li>[x] Stable <code>subjectId</code> for preferences / volumes  </li>
 <li>[x] CSRF on mutating API routes  </li></ul>
@@ -1688,7 +1828,8 @@ docker volume inspect rbi-profile-&lt;key&gt;-chrome</code></pre>
 <li>[x] Managed policies (SponsorBlock removed; uBlock kept)  </li>
 <li>[x] Resource limits (CPU, memory, shm)  </li>
 <li>[x] Optional persistent profile volumes  </li>
-<li>[x] Clipboard / download gates  </li></ul>
+<li>[x] Clipboard / download gates  </li>
+<li>[x] <code>BROWSER_NETWORK_MODE=bridge|host</code>  </li></ul>
 <h3 id="streaming">Streaming</h3>
 <ul><li>[x] Same-origin signaling proxy with ACL  </li>
 <li>[x] WebRTC mux port pool  </li>
@@ -1698,8 +1839,9 @@ docker volume inspect rbi-profile-&lt;key&gt;-chrome</code></pre>
 <ul><li>[x] Idle + max-lifetime reaper  </li>
 <li>[x] Restart reconciliation  </li>
 <li>[x] Admin join / terminate + audit  </li>
-<li>[x] Multi-host workers + placement + host metrics  </li>
-<li>[x] Profile volume admin  </li></ul>
+<li>[x] Multi-host workers + self-enroll + Authorize + <code>worker_grants</code>  </li>
+<li>[x] Profile volume admin  </li>
+<li>[x] GHCR publish (Actions) + Alma install scripts (<code>deploy/podman/</code>)  </li></ul>
 <hr />
 <h2 id="design-decisions-worth-remembering">Design decisions worth remembering</h2>
 <ol><li><strong>SQLite over Postgres</strong> — one-node ops simplicity; workers are remote Docker hosts, not another DB.  </li>
@@ -1707,24 +1849,27 @@ docker volume inspect rbi-profile-&lt;key&gt;-chrome</code></pre>
 <li><strong>Proxy signaling, not media</strong> — orchestrator stays on the path for auth; media scales with worker NICs.  </li>
 <li><strong><code>subjectId</code> ≠ username</strong> — storage survives display-name / IdP changes; see <a href="#identity" data-nav="identity">USER_IDENTITY.md</a>.  </li>
 <li><strong>Policies as files</strong> — <code>neko-policies/</code> injected at create time; persist mode uses <code>policies.persist.json</code>.  </li>
-<li><strong>Admin settings in SQLite</strong> — ops can tune without redeploying; a small set of infra keys stay env-only.</li></ol>
+<li><strong>Admin settings in SQLite</strong> — ops can tune without redeploying; a small set of infra keys stay env-only.  </li>
+<li><strong>Same image, <code>RBI_ROLE</code></strong> — portal and worker share one GHCR artifact; entrypoint switches process.  </li>
+<li><strong>Host network on Alma</strong> — installers default <code>BROWSER_NETWORK_MODE=host</code> so WebRTC ports are reachable.  </li>
+<li><strong>Shared enroll token</strong> — <code>WORKER_ENROLL_TOKEN</code> is both enroll secret and agent Bearer (avoids per-host secret drift).</li></ol>
 <hr />
 <h2 id="suggested-next-work-not-commitments">Suggested next work (not commitments)</h2>
 <p>Use this as a backlog seed, not a promise:</p>
 <div class="table-wrap"><table><thead><tr><th>Area</th><th>Ideas</th></tr></thead><tbody><tr><td><strong>Reliability</strong></td><td>TURN-first presets; better client-facing error UX for ICE failure</td></tr>
-<tr><td><strong>Security</strong></td><td>Optional disable local login when SAML is on; session recording off-by-default policy packs</td></tr>
-<tr><td><strong>Scale</strong></td><td>Autoscaling worker registration; fairer placement (CPU/mem, not only session count)</td></tr>
+<tr><td><strong>Security</strong></td><td>Optional disable local login when SAML is on; rotate baked install-script secrets; session recording off-by-default policy packs</td></tr>
+<tr><td><strong>Scale</strong></td><td>Fairer placement (CPU/mem, not only session count); autoscaling worker pools</td></tr>
 <tr><td><strong>Observability</strong></td><td>Prometheus metrics; structured audit export</td></tr>
 <tr><td><strong>UX</strong></td><td>Multi-monitor / resolution presets; browser language packs</td></tr>
 <tr><td><strong>Testing</strong></td><td>Frontend smoke tests; more integration coverage for workers</td></tr>
-<tr><td><strong>Packaging</strong></td><td>Helm chart or Podman Quadlet examples</td></tr></tbody></table></div>
+<tr><td><strong>Packaging</strong></td><td>Align or retire Quadlet units vs host-network installers; optional Helm</td></tr></tbody></table></div>
 <p>Before starting a large feature, skim <a href="#architecture" data-nav="architecture">ARCHITECTURE.md</a> and the relevant package README so you extend the existing seams (routes → stores → Docker/worker) instead of inventing a parallel path.</p>
 <hr />
 <h2 id="how-to-propose-a-change">How to propose a change</h2>
 <ol><li>Note the user-facing outcome in a short design note (or PR description).  </li>
 <li>Prefer extending <code>settings-fields.ts</code> / admin UI for tunables.  </li>
 <li>Add or update orchestrator tests for behavior changes.  </li>
-<li>Update docs in the same PR when contracts or ops steps change.</li></ol>
+<li>Update docs in the same PR when contracts or ops steps change, then run <code>npm run docs</code>.</li></ol>
 <p>See <a href="#contributing" data-nav="contributing">../CONTRIBUTING.md</a>.</p>
         </div>
       </article>
@@ -1744,7 +1889,7 @@ docker volume inspect rbi-profile-&lt;key&gt;-chrome</code></pre>
 <li>For product context, see <a href="#plan" data-nav="plan">docs/PLAN.md</a>.</li></ol>
 <h2 id="development-workflow">Development workflow</h2>
 <pre class="code-block" data-lang="bash"><code>cp .env.example .env   # if you do not have one
-npm install
+npm install            # requires Node.js 26+
 npm test
 npm run dev</code></pre>
 <ul><li>Prefer small, focused PRs.  </li>
@@ -1753,21 +1898,24 @@ npm run dev</code></pre>
 <h2 id="tests">Tests</h2>
 <p>Orchestrator changes that touch behavior should include or update tests under <code>orchestrator/test/</code>:</p>
 <pre class="code-block" data-lang="bash"><code>npm test</code></pre>
-<p>Optional real-container test (needs Docker + images):</p>
+<p>Optional real-container test (needs Podman/Docker + images):</p>
 <pre class="code-block" data-lang="bash"><code>RBI_INTEGRATION=1 npm test -w orchestrator -- test/integration.test.ts</code></pre>
 <h2 id="documentation">Documentation</h2>
 <p>If you change:</p>
 <div class="table-wrap"><table><thead><tr><th>Change</th><th>Update</th></tr></thead><tbody><tr><td>Env vars</td><td><code>.env.example</code> (+ Admin settings fields if editable)</td></tr>
 <tr><td>HTTP routes</td><td><code>docs/API.md</code></td></tr>
-<tr><td>Deploy / networking</td><td><code>docs/DEPLOYMENT.md</code> or <code>docs/WORKERS.md</code></td></tr>
+<tr><td>Deploy / networking</td><td><code>docs/DEPLOYMENT.md</code>, <code>docs/WORKERS.md</code>, and/or <code>docs/SETUP_GHCR_ALMA.md</code></td></tr>
+<tr><td>Install scripts / entrypoint</td><td><code>deploy/podman/README.md</code>, <code>docs/PODMAN.md</code>, <code>docs/SETUP_GHCR_ALMA.md</code></td></tr>
 <tr><td>Identity / profiles</td><td><code>docs/USER_IDENTITY.md</code></td></tr>
 <tr><td>Architecture / modules</td><td><code>docs/ARCHITECTURE.md</code></td></tr>
-<tr><td>Onboarding entry points</td><td><code>README.md</code> / package READMEs</td></tr></tbody></table></div>
+<tr><td>Security defaults / trust</td><td><code>docs/SECURITY.md</code></td></tr>
+<tr><td>Onboarding entry points</td><td><code>README.md</code> / package READMEs</td></tr>
+<tr><td>Any markdown under <code>docs/</code></td><td>Run <code>npm run docs</code> to refresh <code>docs/site/index.html</code></td></tr></tbody></table></div>
 <h2 id="security-expectations">Security expectations</h2>
-<ul><li>Never expose the Docker socket or worker agent ports to the public internet in examples.  </li>
+<ul><li>Never expose the container socket or worker agent ports to the public internet in examples.  </li>
 <li>Keep CSRF, ACL, and role checks intact when adding routes.  </li>
 <li>Default to deny for clipboard, downloads, and other data exfil paths.  </li>
-<li>Treat <code>WORKER_TOKEN</code>, Neko passwords, and SAML certificates as secrets in docs and logs.</li></ul>
+<li>Treat <code>WORKER_ENROLL_TOKEN</code>, <code>WORKER_TOKEN</code>, Neko passwords, GHCR tokens in install scripts, and SAML certificates as secrets in docs and logs.</li></ul>
 <h2 id="pull-requests">Pull requests</h2>
 <ul><li>Describe <strong>why</strong> the change exists, not only what files moved.  </li>
 <li>List test commands you ran.  </li>
@@ -1784,6 +1932,7 @@ npm run dev</code></pre>
         <div class="doc-body">
           <h1 id="orchestrator">Orchestrator</h1>
 <p>Fastify control plane for Browser Isolation: authentication, SQLite state, Neko container lifecycle, session proxy, admin APIs, and optional <strong>worker agent</strong>.</p>
+<p>Requires <strong>Node.js 26+</strong> (see root <code>package.json</code> <code>engines</code>).</p>
 <h2 id="scripts">Scripts</h2>
 <div class="table-wrap"><table><thead><tr><th>Script</th><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td>Dev portal</td><td><code>npm run dev -w orchestrator</code></td><td><code>tsx watch src/index.ts</code></td></tr>
 <tr><td>Dev worker</td><td><code>npm run dev:worker -w orchestrator</code></td><td>Watch worker agent</td></tr>
@@ -1797,13 +1946,15 @@ npm run dev</code></pre>
 <tr><td><code>src/worker-main.ts</code></td><td>Agent: Docker + <code>/v1</code> on <code>WORKER_PORT</code></td></tr>
 <tr><td><code>src/app.ts</code></td><td>Fastify app factory for the portal</td></tr>
 <tr><td><code>src/worker-agent/app.ts</code></td><td>Fastify app factory for the agent</td></tr></tbody></table></div>
+<p>In the published image, <code>deploy/podman/entrypoint.sh</code> chooses portal vs worker via <code>RBI_ROLE=orchestrator|worker</code>.</p>
 <h2 id="source-layout">Source layout</h2>
 <pre class="code-block" data-lang="text"><code>src/
   auth/           # Local + SAML + subjectId helpers
   docker/         # dockerode runtime, labels, policies, profiles
-  routes/         # Portal HTTP handlers
-  workers/        # Placement, poller, remote client, port pool (memory)
+  routes/         # Portal HTTP handlers (incl. branding)
+  workers/        # Placement, poller, remote client, enroll grants
   worker-agent/   # Remote host API
+  branding-store.ts
   *.ts            # app, config, db, lifecycle, proxy, stores, …
 neko-policies/    # Policy JSON trees injected into containers
 test/             # Unit + optional integration tests</code></pre>
@@ -1812,21 +1963,31 @@ test/             # Unit + optional integration tests</code></pre>
 <p><strong>View</strong> — SPA calls <code>POST …/access</code>, then opens WebSocket on <code>/session/:id/view/ws</code>. <code>proxy.ts</code> checks ACL (<code>access.ts</code>), tracks viewers (<code>viewer-tracker.ts</code>), and forwards to Neko (or worker <code>/v1/proxy/…</code>).</p>
 <p><strong>Cleanup</strong> — <code>lifecycle.ts</code> reaper + destroy paths in <code>browser-sessions.ts</code>; logout also destroys.</p>
 <h2 id="config">Config</h2>
-<p>Loaded from the <strong>repo-root</strong> <code>.env</code> (see <code>env-file.ts</code> + <code>config.ts</code>). Admin overrides land in SQLite via <code>settings-store.ts</code> / <code>settings-fields.ts</code>.</p>
-<p>Worker-only env: <code>WORKER_ID</code>, <code>WORKER_TOKEN</code>, <code>WORKER_PORT</code> (see <a href="#workers" data-nav="workers">../docs/WORKERS.md</a>).</p>
+<p>Loaded from the <strong>repo-root</strong> <code>.env</code>, then <strong><code>/config/.env</code> if present</strong> (Alma mount wins). See <code>env-file.ts</code> + <code>config.ts</code>. Admin overrides land in SQLite via <code>settings-store.ts</code> / <code>settings-fields.ts</code>.</p>
+<p>Worker-oriented env (see <a href="#workers" data-nav="workers">../docs/WORKERS.md</a>):</p>
+<div class="table-wrap"><table><thead><tr><th>Variable</th><th>Notes</th></tr></thead><tbody><tr><td><code>RBI_ROLE</code></td><td><code>worker</code> for agent mode in the container</td></tr>
+<tr><td><code>WORKER_ID</code></td><td>Stable id</td></tr>
+<tr><td><code>WORKER_ENROLL_TOKEN</code></td><td>Preferred Bearer + enroll secret</td></tr>
+<tr><td><code>WORKER_TOKEN</code></td><td>Legacy Bearer fallback</td></tr>
+<tr><td><code>WORKER_PORT</code></td><td>Default <code>8090</code></td></tr>
+<tr><td><code>ORCHESTRATOR_URL</code></td><td>Enroll target</td></tr>
+<tr><td><code>WORKER_BASE_URL</code></td><td>How the portal reaches this agent</td></tr>
+<tr><td><code>PUBLIC_IP</code> / <code>WEBRTC_PORT_RANGE</code></td><td>Media plane</td></tr>
+<tr><td><code>DOCKER_SOCKET</code> / <code>BROWSER_NETWORK_MODE</code></td><td>Engine access; use <code>host</code> on Alma</td></tr></tbody></table></div>
 <h2 id="policies">Policies</h2>
-<p><code>neko-policies/&lt;chrome|brave|firefox&gt;/</code>:</p>
+<p><code>neko-policies/&lt;chrome|brave|firefox&gt;/</code> (paths follow Neko policy layout):</p>
 <ul><li><code>policies.json</code> — default (ephemeral) sessions  </li>
 <li><code>policies.persist.json</code> — when the user opted into persistent profiles  </li></ul>
-<p>Catalog and image names: <code>src/neko-browsers.ts</code>.</p>
+<p>Catalog and image names: <code>src/neko-browsers.ts</code> (browser ids like <code>google-chrome</code>).</p>
 <h2 id="tests">Tests</h2>
 <pre class="code-block" data-lang="bash"><code>npm test -w orchestrator
 RBI_INTEGRATION=1 npm test -w orchestrator -- test/integration.test.ts</code></pre>
-<p>Prefer injecting stores/runtimes in tests (see <code>test/helpers.ts</code>) rather than hitting a live Docker daemon.</p>
+<p>Prefer injecting stores/runtimes in tests (see <code>test/helpers.ts</code>) rather than hitting a live container daemon.</p>
 <h2 id="further-reading">Further reading</h2>
 <ul><li><a href="#architecture" data-nav="architecture">../docs/ARCHITECTURE.md</a>  </li>
 <li><a href="#api" data-nav="api">../docs/API.md</a>  </li>
-<li><a href="#development" data-nav="development">../docs/DEVELOPMENT.md</a>  </li></ul>
+<li><a href="#development" data-nav="development">../docs/DEVELOPMENT.md</a>  </li>
+<li><a href="#workers" data-nav="workers">../docs/WORKERS.md</a>  </li></ul>
         </div>
       </article>
 
@@ -1844,26 +2005,26 @@ RBI_INTEGRATION=1 npm test -w orchestrator -- test/integration.test.ts</code></p
 <div class="table-wrap"><table><thead><tr><th>Script</th><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td>Dev</td><td><code>npm run dev -w web</code></td><td>Vite on <code>http://localhost:5173</code></td></tr>
 <tr><td>Build</td><td><code>npm run build -w web</code></td><td>Typecheck + Vite production build</td></tr>
 <tr><td>Preview</td><td><code>npm run preview -w web</code></td><td>Serve the production build locally</td></tr></tbody></table></div>
-<p>Prefer <code>npm run dev</code> from the <strong>repo root</strong> so the API and UI start together.</p>
+<p>Prefer <code>npm run dev</code> from the <strong>repo root</strong> so the API and UI start together (Node.js <strong>26+</strong>).</p>
 <h2 id="dev-proxy">Dev proxy</h2>
 <p><code>vite.config.ts</code> proxies:</p>
 <ul><li><code>/api</code> → <code>http://127.0.0.1:8080</code></li>
 <li><code>/session/:id/view/*</code> (including WebSocket) → API  </li>
 <li><code>/session/:id</code> (no <code>/view</code>) stays on Vite so the SPA shell loads</li></ul>
-<p>Cookies and CSRF work same-origin through the proxy.</p>
+<p>Cookies and CSRF work same-origin through the proxy. (Logo at <code>/branding/logo</code> is served by the orchestrator; in production the SPA and API share an origin.)</p>
 <h2 id="source-layout">Source layout</h2>
 <pre class="code-block" data-lang="text"><code>src/
   main.tsx          # Bootstrap
   App.tsx           # Routes + auth gate
   api.ts            # Typed fetch client + CSRF
-  Shell.tsx         # Shared chrome
+  Shell.tsx         # Shared chrome (incl. theme)
   styles.css
   pages/
     Login.tsx
     Dashboard.tsx
     Session.tsx
     Admin.tsx
-    admin/          # Admin feature tabs
+    admin/          # Admin feature tabs (settings, branding, workers, …)
   viewer/           # Custom Neko WebRTC client
   SessionFiles.tsx  # Optional file transfer UI
 public/             # Static assets (e.g. browser logos)</code></pre>
@@ -1879,6 +2040,10 @@ public/             # Static assets (e.g. browser logos)</code></pre>
 <li>Sends <code>X-CSRF-Token</code> on mutating methods  </li>
 <li>Uses <code>credentials: &quot;include&quot;</code> for the portal cookie  </li></ul>
 <p>When you add a backend route, add a typed helper here and call it from the page.</p>
+<p>Notable UX wired to preferences / auth:</p>
+<ul><li><strong>Dark mode</strong> — <code>darkMode</code> on <code>/api/me</code> + <code>PUT /api/preferences</code>  </li>
+<li><strong>Change password</strong> — when <code>canChangePassword</code> is true (local users)  </li>
+<li><strong>Branding</strong> — login/shell use <code>logoUrl</code>; admins upload via Admin → Settings / branding APIs  </li></ul>
 <h2 id="viewer">Viewer</h2>
 <p><code>viewer/RemoteDesktop.tsx</code> mounts the stream. Under the hood:</p>
 <ol><li>Parent page fetches access credentials (<code>POST /api/sessions/:id/access</code> or admin join).  </li>

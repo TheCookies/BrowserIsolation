@@ -41,7 +41,7 @@ export function testConfig(partial?: Partial<Config>): Config {
     iceServersFrontend: "[]",
     iceServersBackend: "[]",
     desktopScreen: "1280x720@30",
-    captureVideoCodec: "vp8",
+    captureVideoCodec: "h264",
     dockerSocketPath: "/var/run/docker.sock",
     nekoPoliciesDir: "/tmp/neko-policies-unused",
     persistProfilesEnabled: true,

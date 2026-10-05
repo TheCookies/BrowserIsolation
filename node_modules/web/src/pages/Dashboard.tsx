@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ApiError,
+  destroyMySession,
   getBrowsers,
   getMySession,
   launchSession,
@@ -25,37 +26,47 @@ export function DashboardPage({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const justDisconnected = Boolean(
-    (location.state as { disconnected?: boolean } | null)?.disconnected,
+  const [teardownPending, setTeardownPending] = useState(
+    () => Boolean((location.state as { disconnected?: boolean } | null)?.disconnected),
   );
   const [options, setOptions] = useState<BrowserOption[] | null>(null);
   const [browser, setBrowser] = useState<BrowserChoice | null>(null);
-  const [existing, setExisting] = useState<BrowserSession | null | undefined>(
-    justDisconnected ? null : undefined,
-  );
+  const [existing, setExisting] = useState<BrowserSession | null | undefined>(undefined);
   const [pending, setPending] = useState(false);
   const [persistPending, setPersistPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!justDisconnected) return;
     // Clear one-shot navigation state so a refresh can see a real session again.
     navigate(".", { replace: true, state: null });
-  }, [justDisconnected, navigate]);
+  }, [navigate]);
 
   useEffect(() => {
     let cancelled = false;
+
+    function applyLoaded(session: BrowserSession | null, browsers: BrowserOption[]) {
+      setOptions(browsers);
+      if (teardownPending && session) {
+        // Destroy may still be running after Disconnect — don't treat as an active reconnect.
+        setExisting(null);
+        setBrowser((prev) => prev ?? browsers[0]?.id ?? null);
+        return;
+      }
+      if (teardownPending && !session) {
+        setTeardownPending(false);
+      }
+      setExisting(session);
+      if (session) {
+        setBrowser(session.browser);
+      } else {
+        setBrowser((prev) => prev ?? browsers[0]?.id ?? null);
+      }
+    }
+
     Promise.all([getMySession(), getBrowsers()])
       .then(([session, browsers]) => {
         if (cancelled) return;
-        // After Disconnect, session teardown may still be in flight — don't show Reconnect.
-        setExisting(justDisconnected ? null : session);
-        setOptions(browsers.browsers);
-        if (!justDisconnected && session) {
-          setBrowser(session.browser);
-        } else if (browsers.browsers[0]) {
-          setBrowser(browsers.browsers[0].id);
-        }
+        applyLoaded(session, browsers.browsers);
       })
       .catch(() => {
         if (!cancelled) {
@@ -66,13 +77,55 @@ export function DashboardPage({
     return () => {
       cancelled = true;
     };
-  }, [justDisconnected]);
+  }, [teardownPending]);
+
+  useEffect(() => {
+    if (!teardownPending) return;
+    let cancelled = false;
+
+    async function ensureTeardown() {
+      try {
+        await destroyMySession(me.csrfToken);
+      } catch {
+        /* Session page may already have started destroy; poll until DB reflects it. */
+      }
+      while (!cancelled) {
+        try {
+          const session = await getMySession();
+          if (cancelled) return;
+          if (!session) {
+            setTeardownPending(false);
+            setExisting(null);
+            return;
+          }
+        } catch {
+          if (!cancelled) setTeardownPending(false);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+    }
+
+    void ensureTeardown();
+    return () => {
+      cancelled = true;
+    };
+  }, [me.csrfToken, teardownPending]);
 
   async function onLaunch() {
     if (!browser) return;
     setPending(true);
     setError(null);
     try {
+      if (teardownPending) {
+        try {
+          await destroyMySession(me.csrfToken);
+        } catch {
+          /* background destroy from the session page may have already finished */
+        }
+        setTeardownPending(false);
+        setExisting(null);
+      }
       const result = await launchSession(browser, me.csrfToken);
       setExisting(result.session);
       navigate(`/session/${result.session.id}`);
@@ -112,9 +165,10 @@ export function DashboardPage({
     }
   }
 
-  const hasSession = Boolean(existing);
+  const hasSession = Boolean(existing) && !teardownPending;
   const label = hasSession ? "Reconnect to session" : "Launch isolated browser";
   const checking = existing === undefined || options === null;
+  const choicesLocked = pending || checking;
   const selectedTitle =
     options?.find((option) => option.id === browser)?.title ?? browser ?? "browser";
 
@@ -155,7 +209,7 @@ export function DashboardPage({
                     name="browser"
                     value={option.id}
                     checked={browser === option.id}
-                    disabled={hasSession || pending || checking}
+                    disabled={choicesLocked}
                     onChange={() => setBrowser(option.id)}
                   />
                   <img
@@ -181,7 +235,7 @@ export function DashboardPage({
             <input
               type="checkbox"
               checked={me.persistProfile}
-              disabled={persistPending || hasSession}
+              disabled={persistPending || choicesLocked || hasSession}
               onChange={(event) => void onPersistToggle(event.target.checked)}
             />
             <span className="persist-copy">

@@ -219,7 +219,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, baseDir: string): Config {
     throw new Error("DESKTOP_SCREEN must look like 1280x720@30.");
   }
 
-  const codecRaw = (env.CAPTURE_VIDEO_CODEC?.trim() || "vp8").toLowerCase();
+  const codecRaw = (env.CAPTURE_VIDEO_CODEC?.trim() || "h264").toLowerCase();
   if (codecRaw !== "vp8" && codecRaw !== "h264") {
     throw new Error('CAPTURE_VIDEO_CODEC must be "vp8" or "h264".');
   }
