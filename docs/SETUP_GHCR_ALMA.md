@@ -58,10 +58,10 @@ sudo podman run --rm --entrypoint cat \
   /deploy/install.sh | sudo bash
 ```
 
-The installer will ask for:
+The installer:
 
-- **Public/LAN IP** (press Enter to accept the detected default)
-- **Admin password** for the portal
+- Sets `PUBLIC_IP` from the current **eth0** IPv4 address automatically
+- Asks once for the **admin password** (type it; the prompt reads from your keyboard even when the script is piped)
 
 It then:
 
@@ -101,13 +101,20 @@ sudo podman run --rm --entrypoint cat \
 
 On your PC: push to `main` → wait for Actions green.
 
-On Alma:
+On Alma (either is fine):
 
 ```bash
+# Fastest — pulls :latest and restarts; never touches your settings
 sudo systemctl restart browser-isolation.service
+
+# Or re-run the installer — it keeps /etc/browser-isolation/browser-isolation.env
+sudo podman run --rm --entrypoint cat \
+  ghcr.io/thecookies/browserisolation:latest \
+  /deploy/install.sh | sudo bash
 ```
 
-That pulls the new `:latest` and restarts. SQLite data stays on the volume.
+Settings are only written on **first** install. To force rewrite them: `FORCE_SETTINGS=1`.
+SQLite data stays on the `rbi-data` volume either way.
 
 ---
 
@@ -129,6 +136,33 @@ curl -sS http://127.0.0.1:8080/api/health
 - Login with `sudo` (rootful Podman stores its own credentials)
 - First **Publish image** Action must have succeeded
 - Org SSO: authorize the token for `TheCookies` if prompted
+
+## If `cat: /deploy/install.sh: No such file or directory`
+
+Your Alma box has an **old** image (built before the installer was baked in), or Actions has not published the new build yet.
+
+1. On GitHub → **Actions** → **Publish image** → confirm the newest run is **green**
+2. On Alma, force a fresh pull and check the folder exists:
+
+```bash
+sudo podman pull ghcr.io/thecookies/browserisolation:latest
+sudo podman run --rm --entrypoint ls \
+  ghcr.io/thecookies/browserisolation:latest /deploy
+```
+
+You should see `install.sh`. Then re-run the installer pipe.
+
+**Works right now without waiting for a new image** — copy just the installer from your PC:
+
+```powershell
+# On Windows (from the repo root)
+scp deploy\podman\install.sh root@ALMA_IP:/tmp/install-rbi.sh
+```
+
+```bash
+# On Alma
+sudo bash /tmp/install-rbi.sh
+```
 
 ---
 
