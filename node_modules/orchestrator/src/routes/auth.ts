@@ -1,6 +1,8 @@
+import bcrypt from "bcrypt";
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../app";
 import { clearCookieOptions, csrfCookie, sessionCookie } from "../app";
+import type { LocalUserStore } from "../auth/local-user-store";
 import {
   createSamlClient,
   generateSpMetadata,
@@ -14,8 +16,18 @@ type LoginBody = {
   password: string;
 };
 
+type ChangePasswordBody = {
+  currentPassword: string;
+  newPassword: string;
+};
+
+function canChangePassword(subjectId: string, localUsers: LocalUserStore, username: string): boolean {
+  if (!subjectId.startsWith("local:")) return false;
+  return localUsers.get(username) !== null;
+}
+
 export function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): void {
-  const { config, auth, sessions, browsers, preferences, audit } = deps;
+  const { config, auth, sessions, browsers, preferences, audit, localUsers } = deps;
 
   app.get("/api/auth/csrf", async (request, reply) => {
     if (request.portalSession) {
@@ -96,6 +108,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): void {
         subjectId: user.subjectId,
         persistProfilesEnabled: config.persistProfilesEnabled,
         persistProfile: config.persistProfilesEnabled ? prefs.persistProfile : false,
+        canChangePassword: canChangePassword(user.subjectId, localUsers, user.username),
         csrfToken: session.csrfToken,
       };
     },
@@ -207,7 +220,73 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): void {
       subjectId: request.authUser.subjectId,
       persistProfilesEnabled: config.persistProfilesEnabled,
       persistProfile: config.persistProfilesEnabled ? prefs.persistProfile : false,
+      canChangePassword: canChangePassword(
+        request.authUser.subjectId,
+        localUsers,
+        request.authUser.username,
+      ),
       csrfToken: request.portalSession.csrfToken,
     };
   });
+
+  app.post<{ Body: ChangePasswordBody }>(
+    "/api/auth/password",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["currentPassword", "newPassword"],
+          additionalProperties: false,
+          properties: {
+            currentPassword: { type: "string", minLength: 1, maxLength: 256 },
+            newPassword: { type: "string", minLength: 1, maxLength: 256 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!request.authUser || !request.portalSession) {
+        return reply.code(401).send({ error: "unauthenticated" });
+      }
+
+      const user = request.authUser;
+      if (!canChangePassword(user.subjectId, localUsers, user.username)) {
+        return reply.code(403).send({ error: "password_change_unavailable" });
+      }
+
+      const currentPassword = request.body.currentPassword;
+      const newPassword = request.body.newPassword;
+      if (currentPassword === newPassword) {
+        return reply.code(400).send({ error: "password_unchanged" });
+      }
+
+      const record = localUsers.getAuthRecord(user.username);
+      if (!record) {
+        return reply.code(403).send({ error: "password_change_unavailable" });
+      }
+
+      const matches = await bcrypt.compare(currentPassword, record.passwordHash);
+      if (!matches) {
+        request.log.info({ username: user.username }, "password change failed: bad current password");
+        return reply.code(401).send({ error: "invalid_current_password" });
+      }
+
+      try {
+        await localUsers.setPassword(user.username, newPassword, config.bcryptRounds);
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "update_failed";
+        const status = (error as { statusCode?: number }).statusCode ?? 400;
+        return reply.code(status).send({ error: code });
+      }
+
+      request.log.info({ username: user.username }, "password changed");
+      audit.record({
+        actorUsername: user.username,
+        action: "change_password",
+        ownerUsername: user.username,
+        detail: "user changed own password",
+      });
+      return { ok: true };
+    },
+  );
 }

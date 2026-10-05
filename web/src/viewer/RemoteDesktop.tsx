@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { SessionAccess } from "../api";
+import { LaunchStatusOverlay } from "../LaunchStatusOverlay";
 import { ViewerClient, type ViewerStatus } from "./client";
 import { EVENT } from "./events";
 import {
@@ -540,15 +541,22 @@ export function RemoteDesktop({
         </button>
       ) : null}
       {showOverlay ? (
-        <div className="remote-status" role="status">
-          {status === "connecting" || status === "reconnecting" || status === "idle"
-            ? status === "reconnecting"
-              ? `Reconnecting… (${reconnectAttempt}/${MAX_RECONNECT_ATTEMPTS})`
-              : "Connecting to remote browser…"
-            : detail
-              ? `Disconnected: ${detail}`
-              : "Waiting for remote browser…"}
-        </div>
+        status === "connecting" || status === "reconnecting" || status === "idle" ? (
+          <LaunchStatusOverlay
+            active
+            variant="stage"
+            title={
+              status === "reconnecting"
+                ? `Reconnecting… (${reconnectAttempt}/${MAX_RECONNECT_ATTEMPTS})`
+                : "Connecting to remote browser"
+            }
+            browserTitle={access.session.browser}
+          />
+        ) : (
+          <div className="remote-status" role="status">
+            {detail ? `Disconnected: ${detail}` : "Waiting for remote browser…"}
+          </div>
+        )
       ) : null}
     </div>
   );

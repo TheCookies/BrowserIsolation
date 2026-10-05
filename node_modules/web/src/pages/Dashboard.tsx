@@ -11,6 +11,7 @@ import {
   type BrowserSession,
   type Me,
 } from "../api";
+import { LaunchStatusOverlay } from "../LaunchStatusOverlay";
 import { Shell } from "../Shell";
 
 export function DashboardPage({
@@ -194,6 +195,12 @@ export function DashboardPage({
           ) : null}
         </div>
       </section>
+
+      <LaunchStatusOverlay
+        active={pending}
+        title={hasSession ? "Reconnecting to your session" : "Launching remote browser"}
+        browserTitle={selectedTitle}
+      />
     </Shell>
   );
 }

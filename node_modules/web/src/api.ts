@@ -7,6 +7,8 @@ export type Me = {
   subjectId: string;
   persistProfilesEnabled: boolean;
   persistProfile: boolean;
+  /** True for local (password) accounts; false for SAML/SSO users. */
+  canChangePassword: boolean;
   csrfToken: string;
 };
 
@@ -211,6 +213,20 @@ export async function logout(csrfToken: string): Promise<void> {
     if (error instanceof ApiError && error.status === 401) return;
     throw error;
   }
+}
+
+export async function changePassword(
+  input: { currentPassword: string; newPassword: string },
+  csrfToken: string,
+): Promise<{ ok: boolean }> {
+  return request(
+    "/api/auth/password",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+    csrfToken,
+  );
 }
 
 export function getAdminSessions(): Promise<{ sessions: AdminBrowserSession[] }> {

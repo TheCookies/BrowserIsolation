@@ -10,6 +10,7 @@ export const AUDIT_ACTIONS = [
   "create_user",
   "update_user_role",
   "reset_user_password",
+  "change_password",
   "delete_user",
   "create_worker",
   "enable_worker",
@@ -113,6 +114,12 @@ export const AUDIT_ACTION_DEFS: AuditActionDef[] = [
     label: "Reset user password",
     category: "user",
     description: "Administrator resets a user’s password.",
+  },
+  {
+    id: "change_password",
+    label: "Change password",
+    category: "user",
+    description: "Local user changes their own password.",
   },
   {
     id: "delete_user",

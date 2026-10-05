@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, destroyMySession, getSessionAccess, type Me, type SessionAccess } from "../api";
+import { LaunchStatusOverlay } from "../LaunchStatusOverlay";
 import { SessionFiles } from "../SessionFiles";
 import { hostHasScrollbar, measureSessionStage, VIEWPORT_SLACK_PX } from "../sessionLayout";
 import { RemoteDesktop } from "../viewer";
@@ -249,7 +250,12 @@ export function SessionPage({ me }: { me: Me }) {
             ) : null}
           </>
         ) : (
-          <p className="status session-preparing">Preparing remote browser…</p>
+          <LaunchStatusOverlay
+            active
+            variant="stage"
+            title="Preparing remote browser"
+            browserTitle="Isolated session"
+          />
         )}
       </div>
     </div>
