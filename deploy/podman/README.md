@@ -56,6 +56,13 @@ ORCHESTRATOR=192.168.1.96 sudo -E bash install-worker.sh
 - Enrolls with the orchestrator (shared enroll token)  
 - Starts `browser-isolation-worker` with host network + Podman socket  
 
+Update an existing worker (keeps `/etc/browser-isolation/.env`, no orchestrator prompt):
+
+```bash
+sudo bash update-worker.sh
+# or: sudo bash update-worker.sh --no-pull
+```
+
 ## From the published image
 
 ```bash
@@ -63,9 +70,13 @@ ORCHESTRATOR=192.168.1.96 sudo -E bash install-worker.sh
 sudo podman run --rm --entrypoint cat \
   ghcr.io/thecookies/browserisolation:latest /deploy/install-orchestrator.sh | sudo bash
 
-# worker
+# worker install
 sudo podman run --rm --entrypoint cat \
   ghcr.io/thecookies/browserisolation:latest /deploy/install-worker.sh | sudo bash
+
+# worker update
+sudo podman run --rm --entrypoint cat \
+  ghcr.io/thecookies/browserisolation:latest /deploy/update-worker.sh | sudo bash
 ```
 
 ## Files in this directory
@@ -73,7 +84,8 @@ sudo podman run --rm --entrypoint cat \
 | File | Purpose |
 | --- | --- |
 | `install-orchestrator.sh` | Blank-box orchestrator install/update |
-| `install-worker.sh` | Blank-box worker install/update |
+| `install-worker.sh` | Blank-box worker install |
+| `update-worker.sh` | Pull latest + recreate worker (keeps `.env`) |
 | `install.sh` | Alias → `install-orchestrator.sh` |
 | `entrypoint.sh` | Container entrypoint (baked into image; respects `RBI_ROLE`) |
 | `run.sh` | Older host helper (prefer `install-orchestrator.sh`) |

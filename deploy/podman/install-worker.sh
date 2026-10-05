@@ -303,5 +303,7 @@ else
   echo "    Status:  enrolled / pending — Authorize in Admin → Workers to pull browsers"
 fi
 echo
-echo "Update later:"
+echo "Update later (pull latest image, keep .env):"
+echo "  sudo bash update-worker.sh"
+echo "Full reinstall / rewrite env:"
 echo "  ORCHESTRATOR=${ORCHESTRATOR_BASE} sudo -E bash install-worker.sh"
