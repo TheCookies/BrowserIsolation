@@ -212,8 +212,30 @@ export function createBrowserSessionService(deps: {
             excludeWorkerIds: excluded,
           });
         } catch (error) {
-          if (lastError !== undefined) throw lastError;
-          throw error;
+          const message = error instanceof Error ? error.message : String(error);
+          // One live probe before giving up — covers "just authorized" and brief blips.
+          if (message === "no_workers_available" && excluded.size === 0) {
+            const online = await placement.refreshOnlineWorkers();
+            if (online > 0) {
+              try {
+                worker = placement.pickForLaunch({
+                  persistProfile,
+                  subjectId: user.subjectId,
+                  browser: normalized,
+                  excludeWorkerIds: excluded,
+                });
+              } catch (retryError) {
+                if (lastError !== undefined) throw lastError;
+                throw retryError;
+              }
+            } else {
+              if (lastError !== undefined) throw lastError;
+              throw error;
+            }
+          } else {
+            if (lastError !== undefined) throw lastError;
+            throw error;
+          }
         }
 
         const sessionId = randomToken();
@@ -268,7 +290,14 @@ export function createBrowserSessionService(deps: {
         } catch (error) {
           syncLocalActiveCounts();
           excluded.add(worker.id);
-          lastError = error;
+          const message = error instanceof Error ? error.message : String(error);
+          lastError =
+            message === "unauthorized"
+              ? Object.assign(new Error("worker_auth_failed"), { statusCode: 502 })
+              : error;
+          if (worker.kind === "remote") {
+            placement.store.markUnseen(worker.id);
+          }
           if (persistProfile) {
             placement.store.clearProfilePlacement(user.subjectId, normalized);
           }

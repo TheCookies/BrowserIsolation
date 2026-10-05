@@ -34,6 +34,8 @@ export type WorkerStore = {
   }): WorkerRecord;
   setEnabled(id: string, enabled: boolean): WorkerRecord | null;
   touchStatus(id: string, patch: { lastSeenAt: number; activeSessions: number; publicIp?: string }): void;
+  /** Clear heartbeat so the worker is treated as offline until the next successful poll. */
+  markUnseen(id: string): void;
   delete(id: string): boolean;
   /** Last worker that hosted a persistent profile for subject+browser. */
   getProfilePlacement(subjectId: string, browser: string): string | null;
@@ -52,13 +54,16 @@ export function createWorkerStore(db: Database.Database): WorkerStore {
       public_ip = excluded.public_ip,
       token = excluded.token,
       enabled = excluded.enabled,
-      kind = excluded.kind
+      kind = excluded.kind,
+      last_seen_at = excluded.last_seen_at,
+      active_sessions = excluded.active_sessions
   `);
   const setEnabledStmt = db.prepare(`UPDATE workers SET enabled = ? WHERE id = ?`);
   const touchStmt = db.prepare(`
     UPDATE workers SET last_seen_at = ?, active_sessions = ?, public_ip = COALESCE(?, public_ip)
     WHERE id = ?
   `);
+  const markUnseenStmt = db.prepare(`UPDATE workers SET last_seen_at = NULL WHERE id = ?`);
   const remove = db.prepare(`DELETE FROM workers WHERE id = ?`);
   const getPlacement = db.prepare<[string, string], { worker_id: string }>(
     `SELECT worker_id FROM profile_placements WHERE subject_id = ? AND browser = ?`,
@@ -106,6 +111,10 @@ export function createWorkerStore(db: Database.Database): WorkerStore {
 
     touchStatus(id, patch) {
       touchStmt.run(patch.lastSeenAt, patch.activeSessions, patch.publicIp ?? null, id);
+    },
+
+    markUnseen(id) {
+      markUnseenStmt.run(id);
     },
 
     delete(id) {

@@ -81,6 +81,10 @@ export function DashboardPage({
         setError("No WebRTC ports are available. Try again later.");
       } else if (err instanceof ApiError && err.code === "browser_disabled") {
         setError("That browser is not enabled. Ask an administrator.");
+      } else if (err instanceof ApiError && err.code === "no_workers_available") {
+        setError("No workers are online. Authorize a worker in Admin → Workers, or enable the local worker.");
+      } else if (err instanceof ApiError && (err.code === "worker_auth_failed" || err.message === "worker_auth_failed")) {
+        setError("A worker rejected the orchestrator token. Re-enroll or re-authorize that worker.");
       } else if (err instanceof ApiError && err.message && err.message !== err.code) {
         setError(`Unable to launch a browser: ${err.message}`);
       } else {

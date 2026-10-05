@@ -62,6 +62,9 @@ export function createWorkerPoller(deps: {
             publicIp: status.publicIp,
           });
         } catch (error) {
+          // Auth/token failures must take the worker offline immediately; otherwise a
+          // stale lastSeenAt keeps it selectable and launch fails with "unauthorized".
+          deps.store.markUnseen(worker.id);
           deps.log?.warn({ err: error, workerId: worker.id }, "worker poll failed");
         }
       }

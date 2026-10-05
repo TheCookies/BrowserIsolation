@@ -99,6 +99,18 @@ export function registerSessionRoutes(app: FastifyInstance, deps: AppDeps): void
         if (message === "browser_disabled" || message === "invalid_browser") {
           return reply.code(400).send({ error: message });
         }
+        if (message === "worker_auth_failed" || message === "unauthorized") {
+          return reply.code(502).send({
+            error: "worker_auth_failed",
+            detail: "Worker rejected the orchestrator token. Re-run install-worker.sh or update WORKER_TOKEN.",
+          });
+        }
+        if (message === "no_workers_available") {
+          return reply.code(503).send({
+            error: message,
+            detail: "No enabled workers are online. Authorize a remote worker or enable the local worker.",
+          });
+        }
         request.log.error({ err: error }, "browser launch failed");
         return reply.code(500).send({
           error: "launch_failed",

@@ -30,6 +30,8 @@ export type WorkerPlacement = {
     browser: string;
     excludeWorkerIds?: ReadonlySet<string>;
   }): WorkerRecord;
+  /** Ping enabled remote workers and refresh online heartbeats. */
+  refreshOnlineWorkers(): Promise<number>;
   createBrowser(
     worker: WorkerRecord,
     request: Omit<WorkerCreateBrowserRequest, "settings">,
@@ -120,6 +122,34 @@ export function createWorkerPlacement(deps: {
         throw Object.assign(new Error("no_workers_available"), { statusCode: 503 });
       }
       return picked;
+    },
+
+    async refreshOnlineWorkers() {
+      let online = 0;
+      for (const worker of store.list()) {
+        if (!worker.enabled) continue;
+        if (worker.kind === "local") {
+          store.touchStatus(worker.id, {
+            lastSeenAt: Date.now(),
+            activeSessions: worker.activeSessions,
+            publicIp: config.publicIp,
+          });
+          online += 1;
+          continue;
+        }
+        try {
+          const status = await remote(worker).status();
+          store.touchStatus(worker.id, {
+            lastSeenAt: Date.now(),
+            activeSessions: status.activeSessions,
+            publicIp: status.publicIp || worker.publicIp,
+          });
+          online += 1;
+        } catch {
+          store.markUnseen(worker.id);
+        }
+      }
+      return online;
     },
 
     async createBrowser(worker, request) {

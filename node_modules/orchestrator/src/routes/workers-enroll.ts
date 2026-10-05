@@ -83,6 +83,8 @@ export function registerWorkerEnrollRoutes(app: FastifyInstance, deps: AppDeps):
       }
 
       const token = randomToken();
+      // Always require a fresh successful poll after enroll/re-enroll so a rotated
+      // token cannot leave the worker "online" against a still-running old agent.
       const enabled = existing ? existing.enabled : false;
       const worker = workerStore.upsert({
         id,
@@ -91,7 +93,7 @@ export function registerWorkerEnrollRoutes(app: FastifyInstance, deps: AppDeps):
         token,
         enabled,
         kind: "remote",
-        lastSeenAt: existing?.lastSeenAt ?? null,
+        lastSeenAt: null,
         activeSessions: existing?.activeSessions ?? 0,
       });
 
