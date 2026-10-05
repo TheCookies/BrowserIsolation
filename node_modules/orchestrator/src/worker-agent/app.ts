@@ -14,26 +14,27 @@ import type { WorkerCreateBrowserRequest } from "../workers/types";
 export type WorkerAgentDeps = {
   config: Config;
   workerId: string;
-  token: string;
+  /** Accepted Bearer tokens (shared enroll secret and/or legacy per-worker token). */
+  tokens: string[];
   runtime: ContainerRuntime;
   ports: PortPool;
 };
 
-function authorize(requestToken: string | undefined, expected: string): boolean {
-  if (!requestToken) return false;
+function authorize(requestToken: string | undefined, accepted: string[]): boolean {
+  if (!requestToken || accepted.length === 0) return false;
   const value = requestToken.startsWith("Bearer ") ? requestToken.slice(7) : requestToken;
-  return safeEqual(value, expected);
+  return accepted.some((expected) => expected.length > 0 && safeEqual(value, expected));
 }
 
 export async function buildWorkerAgent(deps: WorkerAgentDeps): Promise<FastifyInstance> {
-  const { config, workerId, token, runtime, ports } = deps;
+  const { config, workerId, tokens, runtime, ports } = deps;
   const neko = createNekoClient();
   const app = Fastify({ logger: true });
   const portByContainer = new Map<string, number>();
 
   app.addHook("onRequest", async (request, reply) => {
     if (request.url.startsWith("/v1/health")) return;
-    if (!authorize(request.headers.authorization, token)) {
+    if (!authorize(request.headers.authorization, tokens)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
   });
@@ -228,7 +229,7 @@ export async function buildWorkerAgent(deps: WorkerAgentDeps): Promise<FastifyIn
 
       const containerId = decodeURIComponent(match[1]!);
       const auth = req.headers.authorization;
-      if (!authorize(auth, token)) {
+      if (!authorize(auth, tokens)) {
         socket.write("HTTP/1.1 401 unauthorized\r\nConnection: close\r\n\r\n");
         socket.destroy();
         return;

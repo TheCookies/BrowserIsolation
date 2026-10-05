@@ -93,7 +93,7 @@ async function collectAdminProfileVolumes(deps: AppDeps): Promise<{
         }
         const remote = createRemoteWorkerClient({
           baseUrl: worker.baseUrl,
-          token: worker.token,
+          token: config.workerEnrollToken || worker.token,
         });
         const payload = await remote.volumes();
         await ingest(worker.id, payload.volumes ?? []);
@@ -201,7 +201,7 @@ export function registerAdminVolumeRoutes(app: FastifyInstance, deps: AppDeps): 
           }
           const remote = createRemoteWorkerClient({
             baseUrl: worker.baseUrl,
-            token: worker.token,
+            token: config.workerEnrollToken || worker.token,
           });
           await remote.removeVolume(volumeName);
         }

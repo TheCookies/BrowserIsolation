@@ -81,6 +81,8 @@ WORKER_ENROLL_TOKEN=rbi_enroll_k9m2Vx7Qp4Hs8nWc3YfL6tZa1Bd0EgR5
 
 (Fresh installs via `deploy/podman/install.sh` / first-boot entrypoint already include this value.)
 
+That same value is the **worker agent Bearer token** for every host. Enroll registers URL/IP/id only — it does **not** mint a per-worker random secret (those used to desync after delete/reinstall).
+
 Then open **Admin → Workers** and click **Authorize**. Use **Deauthorize** to stop scheduling without deleting the row.
 
 | Status | Meaning |
@@ -89,7 +91,7 @@ Then open **Admin → Workers** and click **Authorize**. Use **Deauthorize** to 
 | Online / Offline | Authorized; heartbeat within / outside ~45s |
 | Deauthorized | Previously seen, then disabled |
 
-Re-running `install-worker.sh` refreshes URL/IP and **rotates** the worker token but keeps the current authorize state.
+Re-running `install-worker.sh` refreshes URL/IP, rewrites the shared agent token into `.env`, and the worker **auto-enrolls again on startup**. Authorize state is preserved when the worker id matches.
 
 API: `POST /api/workers/enroll` with `Authorization: Bearer <WORKER_ENROLL_TOKEN>`.
 

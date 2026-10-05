@@ -89,8 +89,28 @@ export function createWorkerPlacement(deps: {
     return worker;
   }
 
+  /** Prefer the shared enroll secret so SQLite never drifts from worker .env tokens. */
+  function agentToken(worker: WorkerRecord): string {
+    if (config.workerEnrollToken) {
+      if (worker.kind === "remote" && worker.token !== config.workerEnrollToken) {
+        store.upsert({
+          id: worker.id,
+          baseUrl: worker.baseUrl,
+          publicIp: worker.publicIp,
+          token: config.workerEnrollToken,
+          enabled: worker.enabled,
+          kind: worker.kind,
+          lastSeenAt: worker.lastSeenAt,
+          activeSessions: worker.activeSessions,
+        });
+      }
+      return config.workerEnrollToken;
+    }
+    return worker.token;
+  }
+
   function remote(worker: WorkerRecord) {
-    return createRemoteWorkerClient({ baseUrl: worker.baseUrl, token: worker.token });
+    return createRemoteWorkerClient({ baseUrl: worker.baseUrl, token: agentToken(worker) });
   }
 
   return {
@@ -362,7 +382,7 @@ export function createWorkerPlacement(deps: {
       const client = remote(worker);
       return {
         targetOrigin: client.proxyOrigin(containerId),
-        headers: { Authorization: `Bearer ${worker.token}` },
+        headers: { Authorization: `Bearer ${agentToken(worker)}` },
       };
     },
   };

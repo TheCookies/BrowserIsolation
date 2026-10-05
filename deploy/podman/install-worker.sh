@@ -161,11 +161,11 @@ ENROLL_JSON="$(curl -fsS \
   "${ORCHESTRATOR_BASE}/api/workers/enroll")" \
   || die "enroll failed — is WORKER_ENROLL_TOKEN set on the orchestrator and is ${ORCHESTRATOR_BASE} reachable?"
 
-WORKER_TOKEN="$(printf '%s' "${ENROLL_JSON}" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
 ASSIGNED_ID="$(printf '%s' "${ENROLL_JSON}" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-[[ -n "${WORKER_TOKEN}" ]] || die "enroll response missing token: ${ENROLL_JSON}"
 [[ -n "${ASSIGNED_ID}" ]] || ASSIGNED_ID="${WORKER_ID}"
 WORKER_ID="${ASSIGNED_ID}"
+# Shared agent secret — same value on orchestrator + every worker (never a random per-enroll token).
+WORKER_TOKEN="${WORKER_ENROLL_TOKEN}"
 
 mkdir -p "${CONFIG_DIR}" "${UNIT_DIR}"
 umask 077
@@ -174,6 +174,9 @@ if [[ -f "${ENV_FILE}" ]]; then
   env_set RBI_ROLE worker "${ENV_FILE}"
   env_set WORKER_ID "${WORKER_ID}" "${ENV_FILE}"
   env_set WORKER_TOKEN "${WORKER_TOKEN}" "${ENV_FILE}"
+  env_set WORKER_ENROLL_TOKEN "${WORKER_ENROLL_TOKEN}" "${ENV_FILE}"
+  env_set ORCHESTRATOR_URL "${ORCHESTRATOR_BASE}" "${ENV_FILE}"
+  env_set WORKER_BASE_URL "${BASE_URL}" "${ENV_FILE}"
   env_set WORKER_PORT "${WORKER_PORT}" "${ENV_FILE}"
   env_set PUBLIC_IP "${PUBLIC_IP}" "${ENV_FILE}"
   env_set DOCKER_SOCKET /var/run/docker.sock "${ENV_FILE}"
@@ -186,6 +189,9 @@ else
 RBI_ROLE=worker
 WORKER_ID=${WORKER_ID}
 WORKER_TOKEN=${WORKER_TOKEN}
+WORKER_ENROLL_TOKEN=${WORKER_ENROLL_TOKEN}
+ORCHESTRATOR_URL=${ORCHESTRATOR_BASE}
+WORKER_BASE_URL=${BASE_URL}
 WORKER_PORT=${WORKER_PORT}
 PUBLIC_IP=${PUBLIC_IP}
 DOCKER_SOCKET=/var/run/docker.sock

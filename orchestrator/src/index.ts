@@ -68,10 +68,28 @@ async function main(): Promise<void> {
       id: entry.id,
       baseUrl: entry.baseUrl,
       publicIp: entry.publicIp,
-      token: entry.token,
+      token: config.workerEnrollToken || entry.token,
       enabled: true,
       kind: "remote",
     });
+  }
+
+  // Heal any remote workers that still have old per-enroll random tokens.
+  if (config.workerEnrollToken) {
+    for (const worker of workerStore.list()) {
+      if (worker.kind !== "remote") continue;
+      if (worker.token === config.workerEnrollToken) continue;
+      workerStore.upsert({
+        id: worker.id,
+        baseUrl: worker.baseUrl,
+        publicIp: worker.publicIp,
+        token: config.workerEnrollToken,
+        enabled: worker.enabled,
+        kind: worker.kind,
+        lastSeenAt: worker.lastSeenAt,
+        activeSessions: worker.activeSessions,
+      });
+    }
   }
 
   const placement = createWorkerPlacement({
@@ -163,9 +181,10 @@ async function main(): Promise<void> {
       intervalMs: 15_000,
       log: app.log,
       async pollRemote(worker) {
+        const token = config.workerEnrollToken || worker.token;
         const client = createRemoteWorkerClient({
           baseUrl: worker.baseUrl,
-          token: worker.token,
+          token,
         });
         const status = await client.status();
         return { activeSessions: status.activeSessions, publicIp: status.publicIp };

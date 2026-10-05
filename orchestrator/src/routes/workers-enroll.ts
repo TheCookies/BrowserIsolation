@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../app";
-import { randomToken, safeEqual } from "../security";
+import { safeEqual } from "../security";
 
 type EnrollBody = {
   workerId?: string;
@@ -82,9 +82,10 @@ export function registerWorkerEnrollRoutes(app: FastifyInstance, deps: AppDeps):
         return reply.code(400).send({ error: "reserved_id" });
       }
 
-      const token = randomToken();
-      // Always require a fresh successful poll after enroll/re-enroll so a rotated
-      // token cannot leave the worker "online" against a still-running old agent.
+      // Shared agent secret: same WORKER_ENROLL_TOKEN on orchestrator + every worker.
+      // Avoids per-enroll random tokens that desync when .env and SQLite drift apart.
+      const token = expected;
+      // Always require a fresh successful poll after enroll/re-enroll.
       const enabled = existing ? existing.enabled : false;
       const worker = workerStore.upsert({
         id,

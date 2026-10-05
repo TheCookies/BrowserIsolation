@@ -71,9 +71,12 @@ export function registerAdminWorkerRoutes(app: FastifyInstance, deps: AppDeps): 
         id,
         baseUrl,
         publicIp: request.body.publicIp.trim(),
-        token: request.body.token,
+        // Prefer shared enroll secret when configured so manual adds can't desync auth.
+        token: config.workerEnrollToken || request.body.token,
         enabled: request.body.enabled !== false,
         kind: "remote",
+        lastSeenAt: null,
+        activeSessions: 0,
       });
       audit.record({
         actorUsername: request.authUser!.username,
@@ -189,7 +192,7 @@ export function registerAdminWorkerRoutes(app: FastifyInstance, deps: AppDeps): 
         } else {
           const remote = createRemoteWorkerClient({
             baseUrl: worker.baseUrl,
-            token: worker.token,
+            token: config.workerEnrollToken || worker.token,
           });
           const payload = await remote.host();
           host = payload.host as HostMetrics;
