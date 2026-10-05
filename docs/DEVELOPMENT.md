@@ -4,7 +4,7 @@ How to work on this repo day to day.
 
 ## Prerequisites
 
-- Node.js **22+**
+- Node.js **26+**
 - npm (workspaces; root `package-lock.json`)
 - Docker Engine (required to launch real browsers; unit tests mock most of it)
 

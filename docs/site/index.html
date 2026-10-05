@@ -616,7 +616,7 @@ body {
 <hr />
 <h2 id="prerequisites">Prerequisites</h2>
 <ul><li><strong>Podman</strong> (recommended) with Compose, or <strong>Docker</strong> + Compose v2  </li>
-<li>Or <strong>Node.js 22+</strong> for local development and unit tests  </li>
+<li>Or <strong>Node.js 26+</strong> for local development and unit tests  </li>
 <li>Container engine socket access for the orchestrator (Compose mounts the Podman/Docker API socket)</li></ul>
 <p>Production remote hosts (Alma Linux step-by-step): <strong><a href="#setup-ghcr-alma" data-nav="setup-ghcr-alma">docs/SETUP_GHCR_ALMA.md</a></strong>.</p>
 <hr />
@@ -864,7 +864,7 @@ podman compose --profile worker up -d worker</code></pre>
           <h1 id="development-guide">Development guide</h1>
 <p>How to work on this repo day to day.</p>
 <h2 id="prerequisites">Prerequisites</h2>
-<ul><li>Node.js <strong>22+</strong></li>
+<ul><li>Node.js <strong>26+</strong></li>
 <li>npm (workspaces; root <code>package-lock.json</code>)</li>
 <li>Docker Engine (required to launch real browsers; unit tests mock most of it)</li></ul>
 <h2 id="first-time-setup">First-time setup</h2>
@@ -1020,7 +1020,8 @@ docker compose up --build</code></pre>
 <h3 id="browsers">Browsers</h3>
 <div class="table-wrap"><table><thead><tr><th>Method</th><th>Path</th><th>CSRF</th><th>Purpose</th></tr></thead><tbody><tr><td>GET</td><td><code>/api/admin/browsers</code></td><td>—</td><td>Full Neko catalog + enabled flags</td></tr>
 <tr><td>PUT</td><td><code>/api/admin/browsers</code></td><td>Yes</td><td>Set enabled browser ids</td></tr>
-<tr><td>POST</td><td><code>/api/admin/browsers/pull</code></td><td>Yes</td><td>Pull images on workers</td></tr></tbody></table></div>
+<tr><td>POST</td><td><code>/api/admin/browsers/pull</code></td><td>Yes</td><td>Pull images on workers</td></tr>
+<tr><td>POST</td><td><code>/api/admin/browsers/pull/stream</code></td><td>Yes</td><td>SSE stream of pull progress (admin Pull modal)</td></tr></tbody></table></div>
 <h3 id="users-local-only">Users (local only)</h3>
 <div class="table-wrap"><table><thead><tr><th>Method</th><th>Path</th><th>CSRF</th><th>Purpose</th></tr></thead><tbody><tr><td>GET</td><td><code>/api/admin/users</code></td><td>—</td><td>List</td></tr>
 <tr><td>POST</td><td><code>/api/admin/users</code></td><td>Yes</td><td>Create</td></tr>
@@ -1032,10 +1033,11 @@ docker compose up --build</code></pre>
 <tr><td>DELETE</td><td><code>/api/admin/profile-volumes</code></td><td>Yes</td><td>Body: <code>workerId</code>, <code>volumeName</code></td></tr></tbody></table></div>
 <h3 id="workers">Workers</h3>
 <div class="table-wrap"><table><thead><tr><th>Method</th><th>Path</th><th>CSRF</th><th>Purpose</th></tr></thead><tbody><tr><td>GET</td><td><code>/api/admin/workers</code></td><td>—</td><td>Registry + online state</td></tr>
-<tr><td>POST</td><td><code>/api/admin/workers</code></td><td>Yes</td><td>Register remote worker</td></tr>
-<tr><td>PATCH</td><td><code>/api/admin/workers/:workerId</code></td><td>Yes</td><td>Enable / disable</td></tr>
+<tr><td>POST</td><td><code>/api/admin/workers</code></td><td>Yes</td><td>Register remote worker (deprecated; prefer enroll)</td></tr>
+<tr><td>PATCH</td><td><code>/api/admin/workers/:workerId</code></td><td>Yes</td><td>Authorize / deauthorize (<code>enabled</code>)</td></tr>
 <tr><td>DELETE</td><td><code>/api/admin/workers/:workerId</code></td><td>Yes</td><td>Remove remote</td></tr>
-<tr><td>GET</td><td><code>/api/admin/workers/:workerId/status</code></td><td>—</td><td>Host metrics</td></tr></tbody></table></div>
+<tr><td>GET</td><td><code>/api/admin/workers/:workerId/status</code></td><td>—</td><td>Host metrics</td></tr>
+<tr><td>POST</td><td><code>/api/workers/enroll</code></td><td>No*</td><td>Worker self-register (<code>Bearer WORKER_ENROLL_TOKEN</code>; CSRF exempt)</td></tr></tbody></table></div>
 <hr />
 <h2 id="session-proxy-not-under-api">Session proxy (not under <code>/api</code>)</h2>
 <div class="table-wrap"><table><thead><tr><th>Method</th><th>Path</th><th>Auth</th><th>Purpose</th></tr></thead><tbody><tr><td>ALL</td><td><code>/session/:sessionId/view</code></td><td>Portal cookie + ACL</td><td>Proxy to Neko root</td></tr>
@@ -1282,6 +1284,7 @@ sudo podman run -d \
   --name browser-isolation \
   --restart=always \
   --network=host \
+  --security-opt label=disable \
   -v /etc/browser-isolation:/config:Z \
   -v rbi-data:/data:Z \
   -v /run/podman/podman.sock:/var/run/docker.sock \
@@ -1320,21 +1323,21 @@ sudo podman restart browser-isolation</code></pre>
 <h1 id="troubleshooting">Troubleshooting</h1>
 <div class="table-wrap"><table><thead><tr><th>Problem</th><th>Fix</th></tr></thead><tbody><tr><td>pull denied</td><td><code>read:packages</code> token + <code>--authfile /etc/containers/auth.json</code></td></tr>
 <tr><td>no admin password in logs</td><td><code>.env</code> already existed; see <code>/etc/browser-isolation/.env</code> (<code>AUTH_USERS=</code>)</td></tr>
-<tr><td>browsers fail to launch</td><td><code>podman.socket</code> running? sock mounted?</td></tr>
+<tr><td><code>EACCES /var/run/docker.sock</code></td><td>recreate with <code>--security-opt label=disable</code> (SELinux); ensure <code>podman.socket</code> is up</td></tr>
+<tr><td><code>websocket closed</code> / stuck on Connecting</td><td>Set <code>BROWSER_NETWORK_MODE=host</code> in <code>/etc/browser-isolation/.env</code> (Podman published ports often unreachable from Hyper-V Default Switch). Redeploy latest image, remove old <code>rbi-*</code> containers, retry.</td></tr>
 <tr><td>wrong PUBLIC_IP</td><td>edit <code>/etc/browser-isolation/.env</code> or delete <code>.env</code> and recreate container</td></tr>
 <tr><td>old image without entrypoint</td><td>wait for green <strong>Publish image</strong>, then <code>podman pull</code> again</td></tr></tbody></table></div>
 <hr />
 <h1 id="extra-worker-hosts-later">Extra worker hosts later</h1>
-<pre class="code-block" data-lang="bash"><code>sudo podman run -d \
-  --name browser-isolation-worker \
-  --restart=always \
-  --network=host \
-  -v /etc/browser-isolation:/config:Z \
-  -v /run/podman/podman.sock:/var/run/docker.sock \
-  -e DOCKER_SOCKET=/var/run/docker.sock \
-  -e RBI_ROLE=worker \
-  ghcr.io/thecookies/browserisolation:latest</code></pre>
-<p>Put <code>WORKER_ID</code>, <code>WORKER_TOKEN</code>, <code>PUBLIC_IP</code>, etc. in that host’s <code>/config/.env</code>, then register the worker in Admin. See <a href="#workers" data-nav="workers">WORKERS.md</a>.</p>
+<p>On each new Alma worker host:</p>
+<pre class="code-block" data-lang="bash"><code>sudo bash install-worker.sh
+# or from image:
+sudo podman run --rm --entrypoint cat \
+  ghcr.io/thecookies/browserisolation:latest /deploy/install-worker.sh | sudo bash</code></pre>
+<p>Prompts only for the orchestrator host/IP. Configures Podman, GHCR login, image pulls, enroll, and starts the worker.</p>
+<p>Orchestrator install (blank box):</p>
+<pre class="code-block" data-lang="bash"><code>sudo bash install-orchestrator.sh</code></pre>
+<p>See <a href="#home" data-nav="home">deploy/podman/README.md</a>.</p>
 <hr />
 <p>Related: <a href="#podman" data-nav="podman">PODMAN.md</a>, <a href="#deployment" data-nav="deployment">DEPLOYMENT.md</a>.</p>
         </div>
@@ -1392,6 +1395,7 @@ echo &quot;$GHCR_TOKEN&quot; | sudo podman login ghcr.io -u YOUR_GITHUB_USERNAME
   --authfile /etc/containers/auth.json --password-stdin
 sudo mkdir -p /etc/browser-isolation
 sudo podman run -d --name browser-isolation --restart=always --network=host \
+  --security-opt label=disable \
   -v /etc/browser-isolation:/config:Z \
   -v rbi-data:/data:Z \
   -v /run/podman/podman.sock:/var/run/docker.sock \
@@ -1491,11 +1495,26 @@ WEBRTC_PORT_RANGE=52000-52099
 podman compose --profile worker up -d worker
 # Docker: CONTAINER_SOCKET=/var/run/docker.sock docker compose --profile worker up -d worker</code></pre>
 <p>The <code>worker</code> service publishes <code>52000-52099</code> UDP+TCP by default. Edit the Compose port mappings if your range differs.</p>
-<h2 id="registering-workers-on-the-portal">Registering workers on the portal</h2>
+<h2 id="self-enrollment-recommended">Self-enrollment (recommended)</h2>
+<p>On a new Alma/RHEL worker host, run the bootstrap script. It asks <strong>only</strong> for the orchestrator host/IP, then installs Podman, logs into GHCR, pulls images, starts the worker agent, and registers itself as <strong>Pending</strong>.</p>
+<pre class="code-block" data-lang="bash"><code>sudo podman run --rm --entrypoint cat \
+  ghcr.io/thecookies/browserisolation:latest /deploy/install-worker.sh | sudo bash
+# Prompt: Orchestrator host or URL  →  e.g. 10.0.0.2  or  http://rbi.example.com:8080</code></pre>
+<p>Orchestrator requirement: set the same enroll secret as the script:</p>
+<pre class="code-block" data-lang="bash"><code>WORKER_ENROLL_TOKEN=rbi_enroll_k9m2Vx7Qp4Hs8nWc3YfL6tZa1Bd0EgR5</code></pre>
+<p>(Fresh installs via <code>deploy/podman/install.sh</code> / first-boot entrypoint already include this value.)</p>
+<p>That same value is the <strong>worker agent Bearer token</strong> for every host. Enroll registers URL/IP/id only — it does <strong>not</strong> mint a per-worker random secret (those used to desync after delete/reinstall).</p>
+<p>Then open <strong>Admin → Workers</strong> and click <strong>Authorize</strong>. Use <strong>Deauthorize</strong> to stop scheduling without deleting the row.</p>
+<div class="table-wrap"><table><thead><tr><th>Status</th><th>Meaning</th></tr></thead><tbody><tr><td>Pending</td><td>Enrolled, not yet authorized (<code>enabled=false</code>, never seen)</td></tr>
+<tr><td>Online / Offline</td><td>Authorized; heartbeat within / outside ~45s</td></tr>
+<tr><td>Deauthorized</td><td>Previously seen, then disabled</td></tr></tbody></table></div>
+<p>Re-running <code>install-worker.sh</code> refreshes URL/IP and the worker <strong>auto-enrolls again on startup</strong>. Prior authorization is remembered (even if the worker row was removed), so you should not need to click Authorize again unless an admin previously Deauthorized that worker id.</p>
+<p>API: <code>POST /api/workers/enroll</code> with <code>Authorization: Bearer &lt;WORKER_ENROLL_TOKEN&gt;</code>.</p>
+<h2 id="manual-env-registration-deprecated-fallback">Manual / env registration (deprecated fallback)</h2>
 <p><strong>Bootstrap via env</strong> (orchestrator host):</p>
 <pre class="code-block" data-lang="bash"><code>WORKERS=edge1|http://10.0.0.5:8090|10.0.0.5|replace-me-with-a-long-secret
 LOCAL_WORKER_ENABLED=false   # optional: control-plane-only portal</code></pre>
-<p><strong>Or Admin → Workers → Add worker</strong> with the same fields (<code>id</code>, agent URL, public IP, token).</p>
+<p><strong>Or Admin → Workers → Add worker</strong> with the same fields (<code>id</code>, agent URL, public IP, token). This form is deprecated in favor of <code>install-worker.sh</code> and will be removed in a later version.</p>
 <p>The orchestrator polls <code>GET /v1/status</code> every <strong>15s</strong>. Workers with a fresh heartbeat (within ~45s) show as <strong>online</strong>.</p>
 <h2 id="placement-rules">Placement rules</h2>
 <p>Implemented in <code>workers/scheduler.ts</code> + <code>workers/placement.ts</code>:</p>

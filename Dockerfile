@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 WORKDIR /src
 COPY package.json package-lock.json ./
 COPY orchestrator/package.json orchestrator/package.json
@@ -9,7 +9,7 @@ COPY web web
 RUN npm run build -w web && npm run build -w orchestrator
 RUN npm prune --omit=dev
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:26-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0

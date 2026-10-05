@@ -43,7 +43,7 @@ Full markdown index: **[docs/README.md](docs/README.md)**. Regenerate the HTML s
 ## Prerequisites
 
 - **Podman** (recommended) with Compose, or **Docker** + Compose v2  
-- Or **Node.js 22+** for local development and unit tests  
+- Or **Node.js 26+** for local development and unit tests  
 - Container engine socket access for the orchestrator (Compose mounts the Podman/Docker API socket)
 
 Production remote hosts (Alma Linux step-by-step): **[docs/SETUP_GHCR_ALMA.md](docs/SETUP_GHCR_ALMA.md)**.
