@@ -27,6 +27,7 @@ function integrationConfig(dir: string): Config {
   return {
     host: "127.0.0.1",
     port: 0,
+    siteName: "Browser Isolation",
     trustProxy: false,
     cookieSecure: false,
     cookieName: "rbi_session",

@@ -39,7 +39,7 @@ export const SETTING_GROUPS: Array<{ id: SettingGroup; title: string; hint: stri
   {
     id: "portal",
     title: "Portal",
-    hint: "Cookie and session behavior for the control plane.",
+    hint: "Branding, cookies, and session behavior for the control plane.",
   },
   {
     id: "security",
@@ -74,6 +74,13 @@ export const SETTING_GROUPS: Array<{ id: SettingGroup; title: string; hint: stri
 ];
 
 export const EDITABLE_SETTINGS: SettingField[] = [
+  {
+    key: "SITE_NAME",
+    label: "Site name",
+    description: "Name shown in the portal header, login page, and browser tab.",
+    group: "portal",
+    type: "string",
+  },
   {
     key: "TRUST_PROXY",
     label: "Trust proxy headers",

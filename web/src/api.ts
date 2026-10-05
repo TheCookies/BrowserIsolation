@@ -5,6 +5,10 @@ export type Me = {
   role: Role;
   /** Stable ownership id (local:… today; saml:… later). */
   subjectId: string;
+  /** Portal display name from Admin → Settings. */
+  siteName: string;
+  /** Custom logo URL, or null when using the default mark. */
+  logoUrl: string | null;
   persistProfilesEnabled: boolean;
   persistProfile: boolean;
   /** True for local (password) accounts; false for SAML/SSO users. */
@@ -355,6 +359,8 @@ export type AdminSettingField = {
 export type AuthMethods = {
   local: boolean;
   saml: boolean;
+  siteName: string;
+  logoUrl: string | null;
   ssoLabel?: string;
   samlUrls?: {
     entityId: string | null;
@@ -398,6 +404,35 @@ export function updateAdminSettings(
   );
 }
 
+export type BrandingLogo = {
+  url: string;
+  contentType: string;
+  updatedAt: number;
+  filename: string;
+};
+
+export function getAdminBranding(): Promise<{ logo: BrandingLogo | null }> {
+  return request("/api/admin/branding");
+}
+
+export function uploadAdminLogo(
+  input: { contentType: string; data: string; filename?: string },
+  csrfToken: string,
+): Promise<{ ok: boolean; logo: BrandingLogo }> {
+  return request(
+    "/api/admin/branding/logo",
+    {
+      method: "PUT",
+      body: JSON.stringify(input),
+    },
+    csrfToken,
+  );
+}
+
+export function deleteAdminLogo(csrfToken: string): Promise<{ ok: boolean; removed: boolean }> {
+  return request("/api/admin/branding/logo", { method: "DELETE" }, csrfToken);
+}
+
 export type AdminLocalUser = {
   username: string;
   role: Role;
@@ -417,10 +452,28 @@ export function getAdminBrowsers(): Promise<{
   return request("/api/admin/browsers");
 }
 
+export type AdminBrowserImageResult = {
+  image: string;
+  ok: boolean;
+  missing?: boolean;
+  error?: string;
+  workerId?: string;
+};
+
+export type UpdateAdminBrowsersResult = {
+  ok: boolean;
+  tag: string;
+  browsers: AdminBrowserCatalogItem[];
+  added: string[];
+  removed: string[];
+  pullImages: string[];
+  removedImages: AdminBrowserImageResult[];
+};
+
 export function updateAdminBrowsers(
   enabled: string[],
   csrfToken: string,
-): Promise<{ ok: boolean; tag: string; browsers: AdminBrowserCatalogItem[] }> {
+): Promise<UpdateAdminBrowsersResult> {
   return request(
     "/api/admin/browsers",
     {
@@ -469,10 +522,15 @@ export async function pullAdminBrowsersStream(
   csrfToken: string,
   onEvent: (event: BrowserPullStreamEvent) => void,
   signal?: AbortSignal,
+  images?: string[],
 ): Promise<void> {
   const response = await fetch("/api/admin/browsers/pull/stream", {
     method: "POST",
-    headers: { "x-csrf-token": csrfToken },
+    headers: {
+      "x-csrf-token": csrfToken,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(images && images.length > 0 ? { images } : {}),
     credentials: "same-origin",
     signal,
   });

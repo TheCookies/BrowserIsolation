@@ -453,6 +453,23 @@ button:disabled {
   color: #fff;
 }
 
+.brand-logo {
+  width: 1.55rem;
+  height: 1.55rem;
+  object-fit: contain;
+  border-radius: 7px;
+  flex: 0 0 auto;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.brand-logo.large {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+}
+
 .brand-dot {
   width: 1.55rem;
   height: 1.55rem;
@@ -1235,6 +1252,55 @@ td.empty {
   cursor: not-allowed;
 }
 
+.branding-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding: 1.15rem 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, #f8fbfc, #fff);
+}
+
+.branding-card-copy {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.branding-card-copy h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.branding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.25rem;
+}
+
+.branding-preview {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 4.5rem;
+  height: 4.5rem;
+}
+
+.branding-actions .button-quiet {
+  color: var(--ink-soft);
+  border-color: var(--line);
+  background: #fff;
+}
+
+.branding-actions .button-quiet:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--line-strong);
+  background: #f8fafc;
+}
+
 .password-modal {
   width: min(26rem, 100%);
 }
@@ -1766,6 +1832,7 @@ td.empty {
   overscroll-behavior: none;
   touch-action: none;
   box-sizing: border-box;
+  cursor: default;
 }
 
 .remote-video {
@@ -1794,6 +1861,7 @@ td.empty {
   overscroll-behavior: none;
   touch-action: none;
   opacity: 0;
+  /* Local OS cursor only — remote pointer is omitted from the video capture. */
   cursor: default;
   z-index: 1;
   color: transparent;

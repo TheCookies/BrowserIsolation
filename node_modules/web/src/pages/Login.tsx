@@ -15,12 +15,19 @@ export function LoginPage({ onSuccess }: { onSuccess: (me: Me) => void }) {
         if (!cancelled) setMethods(result);
       })
       .catch(() => {
-        if (!cancelled) setMethods({ local: true, saml: false });
+        if (!cancelled) {
+          setMethods({ local: true, saml: false, siteName: "Browser Isolation", logoUrl: null });
+        }
       });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const name = methods?.siteName?.trim() || "Browser Isolation";
+    document.title = name;
+  }, [methods?.siteName]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -50,9 +57,20 @@ export function LoginPage({ onSuccess }: { onSuccess: (me: Me) => void }) {
     <main className="login-page">
       <section className="login-hero" aria-hidden="false">
         <div className="login-hero-inner">
-          <div className="brand-mark large" aria-hidden="true" />
+          {methods?.logoUrl ? (
+            <img
+              className="brand-logo large"
+              src={methods.logoUrl}
+              alt=""
+              width={56}
+              height={56}
+              draggable={false}
+            />
+          ) : (
+            <div className="brand-mark large" aria-hidden="true" />
+          )}
           <p className="login-hero-kicker">Secure remote browsing</p>
-          <h1 className="brand-name">Browser Isolation</h1>
+          <h1 className="brand-name">{methods?.siteName?.trim() || "Browser Isolation"}</h1>
           <p className="login-hero-copy">
             Open the web inside disposable containers. Threats stay remote — your device stays clean.
           </p>

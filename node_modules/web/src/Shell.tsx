@@ -148,8 +148,12 @@ export function Shell({
     <div className="app">
       <header className="topbar">
         <NavLink to="/" className="brand" end>
-          <span className="brand-dot" aria-hidden="true" />
-          Browser Isolation
+          {me.logoUrl ? (
+            <img className="brand-logo" src={me.logoUrl} alt="" width={28} height={28} draggable={false} />
+          ) : (
+            <span className="brand-dot" aria-hidden="true" />
+          )}
+          {me.siteName || "Browser Isolation"}
         </NavLink>
         <nav className="nav">
           <NavLink to="/" end className={({ isActive }) => (isActive ? "active" : undefined)}>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   ApiError,
   getBrowsers,
@@ -24,21 +24,34 @@ export function DashboardPage({
   onMe: (me: Me) => void;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const justDisconnected = Boolean(
+    (location.state as { disconnected?: boolean } | null)?.disconnected,
+  );
   const [options, setOptions] = useState<BrowserOption[] | null>(null);
   const [browser, setBrowser] = useState<BrowserChoice | null>(null);
-  const [existing, setExisting] = useState<BrowserSession | null | undefined>(undefined);
+  const [existing, setExisting] = useState<BrowserSession | null | undefined>(
+    justDisconnected ? null : undefined,
+  );
   const [pending, setPending] = useState(false);
   const [persistPending, setPersistPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!justDisconnected) return;
+    // Clear one-shot navigation state so a refresh can see a real session again.
+    navigate(".", { replace: true, state: null });
+  }, [justDisconnected, navigate]);
 
   useEffect(() => {
     let cancelled = false;
     Promise.all([getMySession(), getBrowsers()])
       .then(([session, browsers]) => {
         if (cancelled) return;
-        setExisting(session);
+        // After Disconnect, session teardown may still be in flight — don't show Reconnect.
+        setExisting(justDisconnected ? null : session);
         setOptions(browsers.browsers);
-        if (session) {
+        if (!justDisconnected && session) {
           setBrowser(session.browser);
         } else if (browsers.browsers[0]) {
           setBrowser(browsers.browsers[0].id);
@@ -53,7 +66,7 @@ export function DashboardPage({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [justDisconnected]);
 
   async function onLaunch() {
     if (!browser) return;

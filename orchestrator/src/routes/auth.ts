@@ -27,7 +27,7 @@ function canChangePassword(subjectId: string, localUsers: LocalUserStore, userna
 }
 
 export function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): void {
-  const { config, auth, sessions, browsers, preferences, audit, localUsers } = deps;
+  const { config, auth, sessions, browsers, preferences, audit, localUsers, branding } = deps;
 
   app.get("/api/auth/csrf", async (request, reply) => {
     if (request.portalSession) {
@@ -55,6 +55,8 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): void {
     return {
       local: true,
       saml: config.samlEnabled,
+      siteName: config.siteName,
+      logoUrl: branding.getLogoInfo()?.url ?? null,
       ssoLabel: "Sign in with SSO",
       samlUrls: config.samlEnabled
         ? { entityId, metadataUrl, acsUrl, baseUrl: config.publicBaseUrl || null }
@@ -106,6 +108,8 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): void {
         username: user.username,
         role: user.role,
         subjectId: user.subjectId,
+        siteName: config.siteName,
+        logoUrl: branding.getLogoInfo()?.url ?? null,
         persistProfilesEnabled: config.persistProfilesEnabled,
         persistProfile: config.persistProfilesEnabled ? prefs.persistProfile : false,
         canChangePassword: canChangePassword(user.subjectId, localUsers, user.username),
@@ -218,6 +222,8 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): void {
       username: request.authUser.username,
       role: request.authUser.role,
       subjectId: request.authUser.subjectId,
+      siteName: config.siteName,
+      logoUrl: branding.getLogoInfo()?.url ?? null,
       persistProfilesEnabled: config.persistProfilesEnabled,
       persistProfile: config.persistProfilesEnabled ? prefs.persistProfile : false,
       canChangePassword: canChangePassword(

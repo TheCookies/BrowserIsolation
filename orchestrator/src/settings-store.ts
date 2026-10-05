@@ -4,7 +4,7 @@ import {
   parseAuditEnabledActions,
 } from "./audit-store";
 import type { Config } from "./config";
-import { parseByteSize } from "./config";
+import { normalizeSiteName, parseByteSize } from "./config";
 import {
   formatEnabledBrowsers,
   parseEnabledBrowsers,
@@ -65,6 +65,8 @@ function readNumber(name: string, raw: string, min: number, max: number): number
 /** Current effective string value for an editable env key. */
 export function configValueForKey(config: Config, key: string): string {
   switch (key) {
+    case "SITE_NAME":
+      return config.siteName;
     case "TRUST_PROXY":
       return config.trustProxy ? "true" : "false";
     case "COOKIE_SECURE":
@@ -143,6 +145,9 @@ export function configValueForKey(config: Config, key: string): string {
 export function applySettingToConfig(config: Config, key: string, raw: string): void {
   const value = raw.trim();
   switch (key) {
+    case "SITE_NAME":
+      config.siteName = normalizeSiteName(value);
+      return;
     case "TRUST_PROXY":
       config.trustProxy = readBool(key, value);
       return;

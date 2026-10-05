@@ -12,6 +12,7 @@ function baseConfig(dir: string): Config {
   return {
     host: "127.0.0.1",
     port: 8080,
+    siteName: "Browser Isolation",
     trustProxy: false,
     cookieSecure: false,
     cookieName: "rbi_session",

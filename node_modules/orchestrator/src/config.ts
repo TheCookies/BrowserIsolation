@@ -16,9 +16,13 @@ import {
 
 export type { BrowserType } from "./neko-browsers";
 
+export const DEFAULT_SITE_NAME = "Browser Isolation";
+
 export type Config = {
   host: string;
   port: number;
+  /** Display name shown in the portal chrome and browser tab. */
+  siteName: string;
   trustProxy: boolean;
   cookieSecure: boolean;
   cookieName: string;
@@ -152,6 +156,16 @@ function parseCpu(raw: string | undefined): number {
   return Math.round(value * 1e9);
 }
 
+/** Portal display name; blank/missing falls back to the product default. */
+export function normalizeSiteName(raw: string | undefined | null): string {
+  const value = (raw ?? "").trim().replace(/\s+/g, " ");
+  if (!value) return DEFAULT_SITE_NAME;
+  if (value.length > 64) {
+    throw new Error("SITE_NAME must be at most 64 characters.");
+  }
+  return value;
+}
+
 function assertJsonArray(name: string, raw: string): string {
   let parsed: unknown;
   try {
@@ -211,9 +225,12 @@ export function loadConfig(env: NodeJS.ProcessEnv, baseDir: string): Config {
   const enabledBrowsers = parseEnabledBrowsers(env.ENABLED_BROWSERS);
   const nekoImageTag = env.NEKO_IMAGE_TAG?.trim() || "latest";
 
+  const siteName = normalizeSiteName(env.SITE_NAME);
+
   return {
     host: env.HOST?.trim() || "0.0.0.0",
     port: readInt("PORT", env.PORT, 8080, 1, 65535),
+    siteName,
     trustProxy: readBool("TRUST_PROXY", env.TRUST_PROXY, false),
     cookieSecure: readBool("COOKIE_SECURE", env.COOKIE_SECURE, false),
     cookieName: "rbi_session",

@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { createAuditStore, defaultAuditEnabledActions } from "../src/audit-store";
+import { createBrandingStore } from "../src/branding-store";
 import { createLocalUserStore } from "../src/auth/local-user-store";
 import type { BrowserSessionRecord } from "../src/browser-session-store";
 import type { BrowserSessionService } from "../src/browser-sessions";
@@ -16,6 +17,7 @@ export function testConfig(partial?: Partial<Config>): Config {
   return {
     host: "127.0.0.1",
     port: 8080,
+    siteName: "Browser Isolation",
     trustProxy: false,
     cookieSecure: false,
     cookieName: "rbi_session",
@@ -28,6 +30,7 @@ export function testConfig(partial?: Partial<Config>): Config {
     enabledBrowsers: [...DEFAULT_ENABLED_BROWSERS],
     nekoImageTag: "latest",
     browserNetwork: "rbi-browsers",
+    browserNetworkMode: "bridge",
     browserShmSizeBytes: 2 * 1024 ** 3,
     browserNanoCpus: 3e9,
     browserMemoryBytes: 2 * 1024 ** 3,
@@ -87,6 +90,9 @@ export function stubRuntime(overrides?: Partial<ContainerRuntime>): ContainerRun
     },
     async removeProfileVolume() {},
     async pullImages(images) {
+      return images.map((image) => ({ image, ok: true }));
+    },
+    async removeImages(images) {
       return images.map((image) => ({ image, ok: true }));
     },
   };
@@ -164,6 +170,7 @@ export function testSideChannels(db: Database.Database, config?: Config) {
           hydrateConfig() {},
         },
     localUsers: createLocalUserStore(db),
+    branding: createBrandingStore(cfg.databasePath),
     runtime,
     placement,
     workerStore,

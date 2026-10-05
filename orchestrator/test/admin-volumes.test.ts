@@ -36,6 +36,7 @@ function testConfig(dir: string): Config {
   return {
     host: "127.0.0.1",
     port: 0,
+    siteName: "Browser Isolation",
     trustProxy: false,
     cookieSecure: false,
     cookieName: "rbi_session",
@@ -133,6 +134,7 @@ test("admin profile-volumes maps Docker volumes to usernames and sizes", async (
     preferences,
     settings: side.settings,
     localUsers: side.localUsers,
+    branding: side.branding,
     runtime,
     placement,
     workerStore,
@@ -215,6 +217,7 @@ test("admin profile-volumes maps Docker volumes to usernames and sizes", async (
     preferences,
     settings: side.settings,
     localUsers: side.localUsers,
+    branding: side.branding,
     runtime: runtimeWithDelete,
     placement: placement2,
     workerStore: workerStore2,

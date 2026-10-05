@@ -13,8 +13,16 @@ const SUBNAV: Array<{ to: string; label: string }> = [
   { to: "/admin/audit", label: "Audit" },
 ];
 
-export function AdminLayout({ me, onLogout }: { me: Me; onLogout: () => Promise<void> }) {
-  const context: AdminOutletContext = { me, onLogout };
+export function AdminLayout({
+  me,
+  onLogout,
+  onMe,
+}: {
+  me: Me;
+  onLogout: () => Promise<void>;
+  onMe: (me: Me) => void;
+}) {
+  const context: AdminOutletContext = { me, onLogout, onMe };
   return (
     <Shell me={me} onLogout={onLogout}>
       <nav className="admin-subnav" aria-label="Admin sections">

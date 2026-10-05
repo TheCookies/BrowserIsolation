@@ -30,6 +30,11 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!me?.siteName) return;
+    document.title = me.siteName;
+  }, [me?.siteName]);
+
   async function onLogout() {
     if (!me) return;
     await logout(me.csrfToken);
@@ -75,7 +80,7 @@ export function App() {
           ) : me.role !== "admin" ? (
             <Navigate to="/" replace />
           ) : (
-            <AdminLayout me={me} onLogout={onLogout} />
+            <AdminLayout me={me} onLogout={onLogout} onMe={setMe} />
           )
         }
       >

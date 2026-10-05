@@ -143,6 +143,7 @@ test("settings reject enabling SAML without required fields", async () => {
     preferences,
     settings: side.settings,
     localUsers: side.localUsers,
+    branding: side.branding,
     runtime,
     placement,
     workerStore,

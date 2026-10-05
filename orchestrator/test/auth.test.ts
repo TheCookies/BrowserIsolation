@@ -37,6 +37,7 @@ function testConfig(dir: string, options?: { cookieSecure?: boolean; staticDir?:
   return {
     host: "127.0.0.1",
     port: 0,
+    siteName: "Browser Isolation",
     trustProxy: false,
     cookieSecure: options?.cookieSecure ?? false,
     cookieName: "rbi_session",

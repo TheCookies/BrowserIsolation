@@ -1,12 +1,16 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ApiError,
+  deleteAdminLogo,
   getAdminAudit,
+  getAdminBranding,
   getAdminSettings,
   updateAdminSettings,
+  uploadAdminLogo,
   type AdminAuditActionDef,
   type AdminReadonlySetting,
   type AdminSettingField,
+  type BrandingLogo,
 } from "../../api";
 import { useAdminContext } from "./context";
 
@@ -15,7 +19,11 @@ const SETTING_GROUPS: Array<{
   title: string;
   hint: string;
 }> = [
-  { id: "portal", title: "Portal", hint: "Cookie and session behavior for the control plane." },
+  {
+    id: "portal",
+    title: "Portal",
+    hint: "Branding, cookies, and session behavior for the control plane.",
+  },
   {
     id: "security",
     title: "Security",
@@ -158,7 +166,7 @@ function CopyRow({
 }
 
 export function SettingsPage() {
-  const { me } = useAdminContext();
+  const { me, onMe } = useAdminContext();
   const [editable, setEditable] = useState<AdminSettingField[] | null>(null);
   const [readonly, setReadonly] = useState<AdminReadonlySetting[] | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -177,9 +185,18 @@ export function SettingsPage() {
   const [auditError, setAuditError] = useState<string | null>(null);
   const [auditMessage, setAuditMessage] = useState<string | null>(null);
   const [savingAudit, setSavingAudit] = useState(false);
+  const [logo, setLogo] = useState<BrandingLogo | null>(null);
+  const [logoBusy, setLogoBusy] = useState(false);
+  const [logoMessage, setLogoMessage] = useState<string | null>(null);
+  const [logoError, setLogoError] = useState<string | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   const loadSettings = useCallback(async () => {
-    const [result, audit] = await Promise.all([getAdminSettings(), getAdminAudit({ limit: 1 })]);
+    const [result, audit, branding] = await Promise.all([
+      getAdminSettings(),
+      getAdminAudit({ limit: 1 }),
+      getAdminBranding(),
+    ]);
     setEditable(result.editable);
     setReadonly(result.readonly);
     const next: Record<string, string> = {};
@@ -189,6 +206,7 @@ export function SettingsPage() {
     const enabled = new Set(audit.enabledActions);
     setAuditSaved(enabled);
     setAuditDraft(new Set(enabled));
+    setLogo(branding.logo);
   }, []);
 
   useEffect(() => {
@@ -287,6 +305,67 @@ export function SettingsPage() {
     });
   }
 
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result ?? "");
+        const comma = result.indexOf(",");
+        resolve(comma >= 0 ? result.slice(comma + 1) : result);
+      };
+      reader.onerror = () => reject(reader.error ?? new Error("read_failed"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function onUploadLogo(file: File | null) {
+    if (!file) return;
+    setLogoBusy(true);
+    setLogoError(null);
+    setLogoMessage(null);
+    try {
+      const data = await fileToBase64(file);
+      const result = await uploadAdminLogo(
+        { contentType: file.type || "image/png", data, filename: file.name },
+        me.csrfToken,
+      );
+      setLogo(result.logo);
+      onMe({ ...me, logoUrl: result.logo.url });
+      setLogoMessage("Logo uploaded.");
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.code === "unsupported_logo_type") {
+          setLogoError("Use a PNG, JPEG, WebP, or GIF image.");
+        } else if (err.code === "logo_too_large") {
+          setLogoError("Logo must be 1 MB or smaller.");
+        } else {
+          setLogoError(err.message && err.message !== err.code ? err.message : "Unable to upload logo.");
+        }
+      } else {
+        setLogoError("Unable to upload logo.");
+      }
+    } finally {
+      setLogoBusy(false);
+      if (logoInputRef.current) logoInputRef.current.value = "";
+    }
+  }
+
+  async function onRemoveLogo() {
+    setLogoBusy(true);
+    setLogoError(null);
+    setLogoMessage(null);
+    try {
+      await deleteAdminLogo(me.csrfToken);
+      setLogo(null);
+      onMe({ ...me, logoUrl: null });
+      setLogoMessage("Custom logo removed.");
+    } catch {
+      setLogoError("Unable to remove logo.");
+    } finally {
+      setLogoBusy(false);
+    }
+  }
+
   async function onSaveSettings() {
     if (dirtyKeys.length === 0) return;
     setSavingSettings(true);
@@ -301,6 +380,11 @@ export function SettingsPage() {
       const next: Record<string, string> = {};
       for (const field of result.editable) next[field.key] = field.value;
       setDraft(next);
+      const siteName = next.SITE_NAME?.trim();
+      if (siteName && siteName !== me.siteName) {
+        onMe({ ...me, siteName });
+        document.title = siteName;
+      }
       setSettingsMessage(`Saved ${result.updated.length} setting(s).`);
     } catch (err) {
       setError(
@@ -494,6 +578,55 @@ export function SettingsPage() {
 
         {editable ? (
           <div className="settings-stack">
+            <div className="branding-card">
+              <div className="branding-card-copy">
+                <h2>Site logo</h2>
+                <p className="hint">
+                  Shown in the top bar and on the login page. PNG, JPEG, WebP, or GIF up to 1 MB.
+                </p>
+                {logoError ? (
+                  <p className="alert" role="alert">
+                    {logoError}
+                  </p>
+                ) : null}
+                {logoMessage ? <p className="settings-saved">{logoMessage}</p> : null}
+                <div className="branding-actions">
+                  <input
+                    ref={logoInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif"
+                    hidden
+                    onChange={(event) => void onUploadLogo(event.target.files?.[0] ?? null)}
+                  />
+                  <button
+                    type="button"
+                    className="button-primary"
+                    disabled={logoBusy}
+                    onClick={() => logoInputRef.current?.click()}
+                  >
+                    {logoBusy ? "Working…" : logo ? "Replace logo" : "Upload logo"}
+                  </button>
+                  {logo ? (
+                    <button
+                      type="button"
+                      className="button-quiet"
+                      disabled={logoBusy}
+                      onClick={() => void onRemoveLogo()}
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <div className="branding-preview" aria-hidden="true">
+                {logo ? (
+                  <img className="brand-logo large" src={logo.url} alt="" width={56} height={56} />
+                ) : (
+                  <div className="brand-mark large" />
+                )}
+              </div>
+            </div>
+
             <div className="sso-summary">
               <div className="sso-summary-copy">
                 <div className="sso-summary-title">

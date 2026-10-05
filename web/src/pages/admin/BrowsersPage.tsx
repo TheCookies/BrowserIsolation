@@ -92,56 +92,13 @@ export function BrowsersPage() {
     [browserDraft],
   );
 
-  async function onSaveBrowsers() {
-    if (!browsersDirty || enabledCount === 0) return;
-    setSavingBrowsers(true);
-    setBrowsersMessage(null);
-    setError(null);
-    const enabled = Object.entries(browserDraft)
-      .filter(([, on]) => on)
-      .map(([id]) => id);
-    try {
-      const result = await updateAdminBrowsers(enabled, me.csrfToken);
-      setCatalog(result.browsers);
-      setImageTag(result.tag);
-      const next: Record<string, boolean> = {};
-      for (const browser of result.browsers) next[browser.id] = browser.enabled;
-      setBrowserDraft(next);
-      setBrowsersMessage(`Saved ${enabled.length} enabled browser(s).`);
-    } catch (err) {
-      setError(
-        err instanceof ApiError && err.message && err.message !== err.code
-          ? err.message
-          : "Unable to save browser selection.",
-      );
-    } finally {
-      setSavingBrowsers(false);
-    }
-  }
-
-  function appendPullLine(line: string) {
-    setPullLines((prev) => {
-      const next = prev.length > 800 ? prev.slice(-600) : prev;
-      return [...next, line];
-    });
-  }
-
-  async function onPullLatest() {
-    if (enabledCount === 0) {
-      setError("Enable at least one browser before pulling images.");
-      return;
-    }
-    if (browsersDirty) {
-      setError("Save your browser selection before pulling.");
-      return;
-    }
-
+  async function runPullStream(images?: string[], notice?: string | null) {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
     setPullingBrowsers(true);
-    setBrowsersMessage(null);
+    setBrowsersMessage(notice ?? null);
     setError(null);
     setPullOpen(true);
     setPullLines([]);
@@ -180,7 +137,11 @@ export function BrowsersPage() {
             setPullDone(true);
             setPullFailed(!event.ok);
             if (event.ok) {
-              setBrowsersMessage(`Pulled image(s) at tag ${event.tag}.`);
+              setBrowsersMessage(
+                notice
+                  ? `${notice} Pulled image(s) at tag ${event.tag}.`
+                  : `Pulled image(s) at tag ${event.tag}.`,
+              );
             } else {
               setError(event.message);
             }
@@ -194,6 +155,7 @@ export function BrowsersPage() {
           }
         },
         controller.signal,
+        images,
       );
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
@@ -215,6 +177,75 @@ export function BrowsersPage() {
     }
   }
 
+  async function onSaveBrowsers() {
+    if (!browsersDirty || enabledCount === 0) return;
+    setSavingBrowsers(true);
+    setBrowsersMessage(null);
+    setError(null);
+    const enabled = Object.entries(browserDraft)
+      .filter(([, on]) => on)
+      .map(([id]) => id);
+    try {
+      const result = await updateAdminBrowsers(enabled, me.csrfToken);
+      setCatalog(result.browsers);
+      setImageTag(result.tag);
+      const next: Record<string, boolean> = {};
+      for (const browser of result.browsers) next[browser.id] = browser.enabled;
+      setBrowserDraft(next);
+
+      const removedOk = result.removedImages.filter((row) => row.ok).length;
+      const removedFail = result.removedImages.filter((row) => !row.ok).length;
+      const parts = [`Saved ${enabled.length} enabled browser(s).`];
+      if (result.added.length) parts.push(`Added ${result.added.length}.`);
+      if (result.removed.length) {
+        parts.push(
+          removedFail > 0
+            ? `Removed ${result.removed.length}; deleted ${removedOk} image(s), ${removedFail} failed.`
+            : `Removed ${result.removed.length}; deleted ${removedOk} image(s).`,
+        );
+      }
+      const notice = parts.join(" ");
+
+      if (result.pullImages.length > 0) {
+        setSavingBrowsers(false);
+        await runPullStream(result.pullImages, notice);
+        return;
+      }
+
+      setBrowsersMessage(notice);
+      if (removedFail > 0) {
+        setError("Some disabled browser images could not be deleted. See audit log for details.");
+      }
+    } catch (err) {
+      setError(
+        err instanceof ApiError && err.message && err.message !== err.code
+          ? err.message
+          : "Unable to save browser selection.",
+      );
+    } finally {
+      setSavingBrowsers(false);
+    }
+  }
+
+  function appendPullLine(line: string) {
+    setPullLines((prev) => {
+      const next = prev.length > 800 ? prev.slice(-600) : prev;
+      return [...next, line];
+    });
+  }
+
+  async function onPullLatest() {
+    if (enabledCount === 0) {
+      setError("Enable at least one browser before pulling images.");
+      return;
+    }
+    if (browsersDirty) {
+      setError("Save your browser selection before pulling.");
+      return;
+    }
+    await runPullStream();
+  }
+
   function closePullModal() {
     if (pullingBrowsers) {
       abortRef.current?.abort();
@@ -228,7 +259,8 @@ export function BrowsersPage() {
         <div>
           <h1>Browsers</h1>
           <p className="hint">
-            Choose which browsers users can launch. Images use tag <strong>{imageTag}</strong>.
+            Choose which browsers users can launch. Saving pulls newly enabled images and deletes
+            images for browsers you turn off. Tag: <strong>{imageTag}</strong>.
           </p>
         </div>
         <div className="panel-actions">

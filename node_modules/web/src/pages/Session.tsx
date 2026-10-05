@@ -17,6 +17,7 @@ export function SessionPage({ me }: { me: Me }) {
   const [access, setAccess] = useState<SessionAccess | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingDisconnect, setPendingDisconnect] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [filesOpen, setFilesOpen] = useState(false);
@@ -172,15 +173,15 @@ export function SessionPage({ me }: { me: Me }) {
     };
   }, []);
 
-  async function disconnect() {
+  function disconnect() {
+    if (pendingDisconnect || leaving) return;
     setPendingDisconnect(true);
-    try {
-      await destroyMySession(me.csrfToken);
-      navigate("/", { replace: true });
-    } catch {
-      setPendingDisconnect(false);
-      setError("Unable to disconnect from the remote browser.");
-    }
+    setLeaving(true);
+    // Leave immediately so reconnect overlays never flash; destroy runs in background.
+    navigate("/", { replace: true, state: { disconnected: true } });
+    void destroyMySession(me.csrfToken).catch(() => {
+      /* background cleanup; idle reaper will also reclaim orphans */
+    });
   }
 
   async function toggleFullscreen() {
@@ -216,14 +217,14 @@ export function SessionPage({ me }: { me: Me }) {
         <button
           type="button"
           className="button-quiet danger"
-          onClick={() => void disconnect()}
-          disabled={pendingDisconnect}
+          onClick={disconnect}
+          disabled={pendingDisconnect || leaving}
         >
-          {pendingDisconnect ? "Disconnecting…" : "Disconnect"}
+          {pendingDisconnect || leaving ? "Disconnecting…" : "Disconnect"}
         </button>
       </header>
       <div ref={stageRef} className="session-stage">
-        {error ? (
+        {leaving ? null : error ? (
           <div className="session-error">
             <p className="alert" role="alert">
               {error}

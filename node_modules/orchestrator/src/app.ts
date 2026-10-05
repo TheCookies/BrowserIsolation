@@ -20,6 +20,8 @@ import { registerSessionProxy } from "./proxy";
 import { safeEqual } from "./security";
 import type { PortalSession, SessionStore } from "./session-store";
 import type { LocalUserStore } from "./auth/local-user-store";
+import type { BrandingStore } from "./branding-store";
+import { registerBrandingRoutes } from "./routes/branding";
 import type { SettingsStore } from "./settings-store";
 import type { UserPreferencesStore } from "./user-preferences";
 import type { ViewerTracker } from "./viewer-tracker";
@@ -41,6 +43,7 @@ export type AppDeps = {
   preferences: UserPreferencesStore;
   settings: SettingsStore;
   localUsers: LocalUserStore;
+  branding: BrandingStore;
   runtime: ContainerRuntime;
   placement: import("./workers/placement").WorkerPlacement;
   workerStore: import("./workers/store").WorkerStore;
@@ -148,6 +151,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   app.get("/api/health", async () => ({ ok: true }));
   registerAuthRoutes(app, deps);
+  registerBrandingRoutes(app, deps);
   registerPreferenceRoutes(app, deps);
   registerAdminRoutes(app, deps);
   registerAdminBrowserRoutes(app, deps);

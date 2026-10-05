@@ -179,6 +179,15 @@ export async function buildWorkerAgent(deps: WorkerAgentDeps): Promise<FastifyIn
     return { results };
   });
 
+  app.post<{ Body: { images?: string[] } }>("/v1/images/remove", async (request, reply) => {
+    const images = request.body?.images;
+    if (!Array.isArray(images) || images.length === 0) {
+      return reply.code(400).send({ error: "images_required" });
+    }
+    const results = await runtime.removeImages(images.map(String));
+    return { results };
+  });
+
   const proxy = httpProxy.createProxyServer({ ws: true, xfwd: true, changeOrigin: true });
   proxy.on("error", (error, _req, res) => {
     app.log.error({ err: error }, "worker neko proxy error");

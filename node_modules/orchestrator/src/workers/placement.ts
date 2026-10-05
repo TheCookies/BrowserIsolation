@@ -5,6 +5,7 @@ import type {
   ContainerStats,
   ImagePullProgressHandler,
   ImagePullResult,
+  ImageRemoveResult,
 } from "../docker/container-runtime";
 import type { PortPool } from "../port-pool";
 import { createRemoteWorkerClient } from "./client";
@@ -42,6 +43,7 @@ export type WorkerPlacement = {
     images: string[],
     onProgress?: ImagePullProgressHandler,
   ): Promise<Array<ImagePullResult & { workerId: string }>>;
+  removeImages(images: string[]): Promise<Array<ImageRemoveResult & { workerId: string }>>;
   proxyTarget(
     workerId: string,
     containerId: string,
@@ -271,6 +273,33 @@ export function createWorkerPlacement(deps: {
               status: "error",
               detail: `[${worker.id}] ${message}`,
             });
+            results.push({
+              image,
+              ok: false,
+              error: message,
+              workerId: worker.id,
+            });
+          }
+        }
+      }
+      return results;
+    },
+
+    async removeImages(images) {
+      const results: Array<ImageRemoveResult & { workerId: string }> = [];
+      for (const worker of store.list()) {
+        if (!worker.enabled) continue;
+        try {
+          if (worker.kind === "local") {
+            const removed = await localRuntime.removeImages(images);
+            for (const item of removed) results.push({ ...item, workerId: worker.id });
+          } else {
+            const removed = await remote(worker).removeImages(images);
+            for (const item of removed) results.push({ ...item, workerId: worker.id });
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          for (const image of images) {
             results.push({
               image,
               ok: false,

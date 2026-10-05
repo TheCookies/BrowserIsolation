@@ -38,6 +38,18 @@ function catalogPayload(config: AppDeps["config"]) {
   };
 }
 
+function imagesForBrowsers(config: AppDeps["config"], browsers: readonly BrowserType[]): string[] {
+  return [
+    ...new Set(
+      browsers.map((id) => {
+        const meta = getNekoBrowser(id);
+        if (!meta) throw new Error(`unknown browser ${id}`);
+        return imageForBrowser(config, id);
+      }),
+    ),
+  ];
+}
+
 export function registerAdminBrowserRoutes(app: FastifyInstance, deps: AppDeps): void {
   const { config, settings, placement, audit } = deps;
 
@@ -66,18 +78,59 @@ export function registerAdminBrowserRoutes(app: FastifyInstance, deps: AppDeps):
     },
     async (request, reply) => {
       if (!requireAdmin(request, reply)) return;
+      // Image deletes can take a while across workers.
+      request.raw.setTimeout(30 * 60 * 1000);
+      reply.raw.setTimeout(30 * 60 * 1000);
+
       try {
+        const previous = [...config.enabledBrowsers];
+        const previousSet = new Set(previous);
         const normalized = request.body.enabled
           .map((id) => normalizeBrowserId(id))
           .filter((id): id is BrowserType => Boolean(id));
         parseEnabledBrowsers(normalized.join(","));
+
+        const nextSet = new Set(normalized);
+        const added = normalized.filter((id) => !previousSet.has(id));
+        const removed = previous.filter((id) => !nextSet.has(id));
+
         settings.setEnabledBrowsers(normalized);
+
+        const keptImages = new Set(imagesForBrowsers(config, normalized));
+        const pullImages = imagesForBrowsers(config, added);
+        const removeTargets = imagesForBrowsers(config, removed).filter(
+          (image) => !keptImages.has(image),
+        );
+
+        const removedImages =
+          removeTargets.length > 0 ? await placement.removeImages(removeTargets) : [];
+        const removeFailed = removedImages.filter((row) => !row.ok);
+
+        const detailParts = [`enabled browsers: ${normalized.join(", ")}`];
+        if (added.length) detailParts.push(`added: ${added.join(", ")}`);
+        if (removed.length) detailParts.push(`removed: ${removed.join(", ")}`);
+        if (removeTargets.length) {
+          detailParts.push(
+            removeFailed.length === 0
+              ? `deleted ${removeTargets.length} image(s)`
+              : `deleted images with errors (${removeFailed.length} failed)`,
+          );
+        }
+
         audit.record({
           actorUsername: request.authUser!.username,
           action: "update_browsers",
-          detail: `enabled browsers: ${normalized.join(", ")}`,
+          detail: detailParts.join("; "),
         });
-        return { ok: true, ...catalogPayload(config) };
+
+        return {
+          ok: true,
+          ...catalogPayload(config),
+          added,
+          removed,
+          pullImages,
+          removedImages,
+        };
       } catch (error) {
         const message = error instanceof Error ? error.message : "invalid_browsers";
         return reply.code(400).send({ error: "invalid_browsers", message });
@@ -91,14 +144,8 @@ export function registerAdminBrowserRoutes(app: FastifyInstance, deps: AppDeps):
     request.raw.setTimeout(30 * 60 * 1000);
     reply.raw.setTimeout(30 * 60 * 1000);
 
-    const images = config.enabledBrowsers.map((id) => {
-      const meta = getNekoBrowser(id);
-      if (!meta) throw new Error(`unknown browser ${id}`);
-      return imageForBrowser(config, id);
-    });
-
-    const unique = [...new Set(images)];
-    const results = await placement.pullImages(unique);
+    const images = imagesForBrowsers(config, config.enabledBrowsers);
+    const results = await placement.pullImages(images);
     const failed = results.filter((result) => !result.ok);
     const okCount = results.length - failed.length;
     audit.record({
@@ -119,7 +166,7 @@ export function registerAdminBrowserRoutes(app: FastifyInstance, deps: AppDeps):
   });
 
   /** SSE stream of pull progress for the admin Pull modal. */
-  app.post("/api/admin/browsers/pull/stream", async (request, reply) => {
+  app.post<{ Body: { images?: string[] } }>("/api/admin/browsers/pull/stream", async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
     request.raw.setTimeout(30 * 60 * 1000);
     reply.hijack();
@@ -135,12 +182,18 @@ export function registerAdminBrowserRoutes(app: FastifyInstance, deps: AppDeps):
     };
 
     try {
-      const images = config.enabledBrowsers.map((id) => {
-        const meta = getNekoBrowser(id);
-        if (!meta) throw new Error(`unknown browser ${id}`);
-        return imageForBrowser(config, id);
-      });
-      const unique = [...new Set(images)];
+      const requested = Array.isArray(request.body?.images)
+        ? request.body.images.map(String).filter((image) => image.trim().length > 0)
+        : [];
+      const unique =
+        requested.length > 0
+          ? [...new Set(requested)]
+          : imagesForBrowsers(config, config.enabledBrowsers);
+
+      if (unique.length === 0) {
+        send({ type: "error", message: "No images to pull." });
+        return;
+      }
 
       send({
         type: "start",

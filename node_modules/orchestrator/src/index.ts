@@ -6,6 +6,7 @@ import { createLocalAuthProvider } from "./auth/local-provider";
 import { createLocalUserStore, seedLocalUsersIfEmpty } from "./auth/local-user-store";
 import { buildApp } from "./app";
 import { createAuditStore } from "./audit-store";
+import { createBrandingStore } from "./branding-store";
 import { createBrowserSessionStore } from "./browser-session-store";
 import { createBrowserSessionService } from "./browser-sessions";
 import { createDockerRuntime } from "./docker/container-runtime";
@@ -89,6 +90,7 @@ async function main(): Promise<void> {
   const localUsers = createLocalUserStore(db);
   const seeded = await seedLocalUsersIfEmpty(localUsers, config.authUsers, config.bcryptRounds);
   const auth = await createLocalAuthProvider(localUsers, config.bcryptRounds);
+  const branding = createBrandingStore(config.databasePath);
   const app = await buildApp({
     config,
     auth,
@@ -99,6 +101,7 @@ async function main(): Promise<void> {
     preferences,
     settings,
     localUsers,
+    branding,
     runtime: localRuntime,
     placement,
     workerStore,

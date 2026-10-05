@@ -9,6 +9,7 @@ import type {
   ContainerStats,
   CreateBrowserContainerInput,
   ImagePullResult,
+  ImageRemoveResult,
   ProfileVolumeInfo,
 } from "../docker/container-runtime";
 
@@ -24,6 +25,7 @@ export type RemoteWorkerClient = {
   remove(containerId: string): Promise<void>;
   listManaged(): Promise<BrowserContainerInfo[]>;
   pullImages(images: string[]): Promise<ImagePullResult[]>;
+  removeImages(images: string[]): Promise<ImageRemoveResult[]>;
   proxyOrigin(containerId: string): string;
 };
 
@@ -141,6 +143,16 @@ export function createRemoteWorkerClient(opts: {
       });
       if (!response.ok) throw new Error(await readError(response));
       const body = (await response.json()) as { results: ImagePullResult[] };
+      return body.results ?? [];
+    },
+
+    async removeImages(images) {
+      const response = await request("/v1/images/remove", {
+        method: "POST",
+        body: JSON.stringify({ images }),
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      const body = (await response.json()) as { results: ImageRemoveResult[] };
       return body.results ?? [];
     },
   };

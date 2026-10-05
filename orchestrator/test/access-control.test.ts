@@ -45,6 +45,7 @@ function testConfig(dir: string): Config {
   return {
     host: "127.0.0.1",
     port: 0,
+    siteName: "Browser Isolation",
     trustProxy: false,
     cookieSecure: false,
     cookieName: "rbi_session",
@@ -238,6 +239,9 @@ async function buildHarness(fakeOrigin: string) {
     async pullImages(images) {
       return images.map((image) => ({ image, ok: true }));
     },
+    async removeImages(images) {
+      return images.map((image) => ({ image, ok: true }));
+    },
   };
 
   const neko: NekoClient = {
@@ -286,6 +290,7 @@ async function buildHarness(fakeOrigin: string) {
     preferences,
     settings: side.settings,
     localUsers: side.localUsers,
+    branding: side.branding,
     runtime,
     placement,
     workerStore,
