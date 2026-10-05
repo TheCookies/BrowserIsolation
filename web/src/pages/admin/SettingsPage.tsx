@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ApiError,
   deleteAdminLogo,
@@ -14,33 +14,37 @@ import {
 } from "../../api";
 import { useAdminContext } from "./context";
 
-const SETTING_GROUPS: Array<{
-  id: Exclude<AdminSettingField["group"], "sso" | "audit">;
-  title: string;
-  hint: string;
-}> = [
-  {
-    id: "portal",
-    title: "Portal",
-    hint: "Branding, cookies, and session behavior for the control plane.",
-  },
-  {
-    id: "security",
-    title: "Security",
-    hint: "Data transfer controls between the user and isolated browsers.",
-  },
-  {
-    id: "browser",
-    title: "Browser resources",
-    hint: "Limits applied when launching a new isolated browser.",
-  },
-  {
-    id: "webrtc",
-    title: "WebRTC / media",
-    hint: "Streaming and ICE settings for remote desktops.",
-  },
-  { id: "cleanup", title: "Cleanup", hint: "Idle and lifetime limits for browser sessions." },
-];
+type ModalId =
+  | "branding"
+  | "sso"
+  | "security"
+  | "sessions"
+  | "browser"
+  | "streaming"
+  | "audit"
+  | "advanced";
+
+const SECTION_KEYS: Record<Exclude<ModalId, "sso" | "audit">, readonly string[]> = {
+  branding: ["SITE_NAME"],
+  security: ["ALLOW_CLIPBOARD", "ALLOW_DOWNLOADS"],
+  sessions: [
+    "SESSION_TTL_HOURS",
+    "PERSIST_PROFILES_ENABLED",
+    "IDLE_TIMEOUT_MINUTES",
+    "MAX_SESSION_HOURS",
+    "REAPER_INTERVAL_SECONDS",
+  ],
+  browser: ["BROWSER_CPUS", "BROWSER_MEMORY", "BROWSER_SHM_SIZE"],
+  streaming: [
+    "PUBLIC_IP",
+    "WEBRTC_ICELITE",
+    "ICE_SERVERS_FRONTEND",
+    "ICE_SERVERS_BACKEND",
+    "DESKTOP_SCREEN",
+    "CAPTURE_VIDEO_CODEC",
+  ],
+  advanced: ["TRUST_PROXY", "COOKIE_SECURE"],
+};
 
 const SSO_KEYS = [
   "SAML_ENABLED",
@@ -54,7 +58,6 @@ const SSO_KEYS = [
   "SAML_ADMIN_GROUP",
 ] as const;
 
-/** Short “what to copy / where it comes from” tips for the SSO modal. */
 const SSO_HELP: Record<string, string> = {
   SAML_ENABLED:
     "Shows Sign in with SSO on the login page. Local username/password stays available as break-glass.",
@@ -105,6 +108,16 @@ function ssoUrlsFrom(draft: Record<string, string>) {
     metadataUrl,
     entityId: customEntity || metadataUrl,
   };
+}
+
+function boolLabel(value: string | undefined, on: string, off: string): string {
+  return value === "true" ? on : off;
+}
+
+function pickFields(editable: AdminSettingField[] | null, keys: readonly string[]): AdminSettingField[] {
+  if (!editable) return [];
+  const byKey = new Map(editable.map((field) => [field.key, field]));
+  return keys.map((key) => byKey.get(key)).filter((field): field is AdminSettingField => Boolean(field));
 }
 
 function HelpTip({ text }: { text: string }) {
@@ -165,30 +178,140 @@ function CopyRow({
   );
 }
 
+function SettingsCard({
+  title,
+  hint,
+  status,
+  onConfigure,
+  media,
+}: {
+  title: string;
+  hint: string;
+  status: string[];
+  onConfigure: () => void;
+  media?: ReactNode;
+}) {
+  return (
+    <article className="settings-card">
+      <div className="settings-card-main">
+        <div className="settings-card-copy">
+          <h2>{title}</h2>
+          <p className="hint">{hint}</p>
+          {status.length ? (
+            <div className="settings-card-status">
+              {status.map((item) => (
+                <span key={item} className="settings-status-pill">
+                  {item}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        {media ? <div className="settings-card-media">{media}</div> : null}
+      </div>
+      <button type="button" className="settings-card-configure" onClick={onConfigure}>
+        Configure
+      </button>
+    </article>
+  );
+}
+
+function SettingsModal({
+  title,
+  hint,
+  busy,
+  dirty,
+  error,
+  message,
+  onClose,
+  onSave,
+  children,
+  wide,
+}: {
+  title: string;
+  hint?: string;
+  busy: boolean;
+  dirty: boolean;
+  error: string | null;
+  message: string | null;
+  onClose: () => void;
+  onSave: () => void;
+  children: ReactNode;
+  wide?: boolean;
+}) {
+  const titleId = useId();
+
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={busy ? undefined : onClose}>
+      <div
+        className={`modal-panel modal-panel-sso${wide ? " modal-panel-settings-wide" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="modal-panel-sso-body">
+          <div className="panel-header">
+            <div>
+              <h2 id={titleId}>{title}</h2>
+              {hint ? <p className="hint">{hint}</p> : null}
+            </div>
+            <button
+              type="button"
+              className="modal-close"
+              onClick={onClose}
+              disabled={busy}
+              aria-label="Close"
+            >
+              ×
+            </button>
+          </div>
+          {error ? (
+            <p className="alert" role="alert">
+              {error}
+            </p>
+          ) : null}
+          {message ? <p className="settings-saved">{message}</p> : null}
+          {children}
+        </div>
+        <div className="modal-panel-sso-footer">
+          <button type="button" className="button-quiet" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="button-primary"
+            disabled={busy || !dirty}
+            onClick={onSave}
+          >
+            {busy ? "Saving…" : dirty ? "Save changes" : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const { me, onMe } = useAdminContext();
   const [editable, setEditable] = useState<AdminSettingField[] | null>(null);
   const [readonly, setReadonly] = useState<AdminReadonlySetting[] | null>(null);
-  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [live, setLive] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
-  const [savingSettings, setSavingSettings] = useState(false);
-  const [ssoOpen, setSsoOpen] = useState(false);
-  const [ssoDraft, setSsoDraft] = useState<Record<string, string>>({});
-  const [ssoError, setSsoError] = useState<string | null>(null);
-  const [ssoMessage, setSsoMessage] = useState<string | null>(null);
-  const [savingSso, setSavingSso] = useState(false);
-  const [auditOpen, setAuditOpen] = useState(false);
+  const [hubMessage, setHubMessage] = useState<string | null>(null);
+
+  const [activeModal, setActiveModal] = useState<ModalId | null>(null);
+  const [modalDraft, setModalDraft] = useState<Record<string, string>>({});
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [modalMessage, setModalMessage] = useState<string | null>(null);
+  const [savingModal, setSavingModal] = useState(false);
+
   const [auditCatalog, setAuditCatalog] = useState<AdminAuditActionDef[]>([]);
   const [auditDraft, setAuditDraft] = useState<Set<string>>(new Set());
   const [auditSaved, setAuditSaved] = useState<Set<string>>(new Set());
-  const [auditError, setAuditError] = useState<string | null>(null);
-  const [auditMessage, setAuditMessage] = useState<string | null>(null);
-  const [savingAudit, setSavingAudit] = useState(false);
+
   const [logo, setLogo] = useState<BrandingLogo | null>(null);
   const [logoBusy, setLogoBusy] = useState(false);
-  const [logoMessage, setLogoMessage] = useState<string | null>(null);
-  const [logoError, setLogoError] = useState<string | null>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
   const loadSettings = useCallback(async () => {
@@ -201,7 +324,7 @@ export function SettingsPage() {
     setReadonly(result.readonly);
     const next: Record<string, string> = {};
     for (const field of result.editable) next[field.key] = field.value;
-    setDraft(next);
+    setLive(next);
     setAuditCatalog(audit.catalog);
     const enabled = new Set(audit.enabledActions);
     setAuditSaved(enabled);
@@ -223,18 +346,26 @@ export function SettingsPage() {
     };
   }, [loadSettings]);
 
-  const ssoFields = useMemo(
-    () => (editable ?? []).filter((field) => field.group === "sso"),
-    [editable],
-  );
+  useEffect(() => {
+    if (!activeModal) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      if (savingModal || logoBusy) return;
+      setActiveModal(null);
+      setModalError(null);
+      setModalMessage(null);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeModal, logoBusy, savingModal]);
 
-  const dirtyKeys = useMemo(() => {
-    if (!editable) return [] as string[];
-    return editable
-      .filter((field) => field.group !== "sso" && field.group !== "audit")
-      .filter((field) => (draft[field.key] ?? "") !== field.value)
-      .map((field) => field.key);
-  }, [draft, editable]);
+  const ssoFields = useMemo(() => pickFields(editable, SSO_KEYS), [editable]);
+  const brandingFields = useMemo(() => pickFields(editable, SECTION_KEYS.branding), [editable]);
+  const securityFields = useMemo(() => pickFields(editable, SECTION_KEYS.security), [editable]);
+  const sessionsFields = useMemo(() => pickFields(editable, SECTION_KEYS.sessions), [editable]);
+  const browserFields = useMemo(() => pickFields(editable, SECTION_KEYS.browser), [editable]);
+  const streamingFields = useMemo(() => pickFields(editable, SECTION_KEYS.streaming), [editable]);
+  const advancedFields = useMemo(() => pickFields(editable, SECTION_KEYS.advanced), [editable]);
 
   const auditDirty = useMemo(() => {
     if (auditDraft.size !== auditSaved.size) return true;
@@ -244,44 +375,41 @@ export function SettingsPage() {
     return false;
   }, [auditDraft, auditSaved]);
 
+  const modalDirtyKeys = useMemo(() => {
+    if (!activeModal || activeModal === "audit") return [] as string[];
+    const keys =
+      activeModal === "sso" ? SSO_KEYS : SECTION_KEYS[activeModal as Exclude<ModalId, "sso" | "audit">];
+    return keys.filter((key) => (modalDraft[key] ?? "") !== (live[key] ?? ""));
+  }, [activeModal, live, modalDraft]);
+
+  const modalDirty = activeModal === "audit" ? auditDirty : modalDirtyKeys.length > 0;
+  const ssoUrls = useMemo(() => ssoUrlsFrom(modalDraft), [modalDraft]);
+  const ssoEnabled = (live.SAML_ENABLED ?? "false") === "true";
   const auditEnabledCount = auditSaved.size;
   const auditTotalCount = auditCatalog.length || auditSaved.size;
 
-  const ssoDirtyKeys = useMemo(() => {
-    return SSO_KEYS.filter((key) => (ssoDraft[key] ?? "") !== (draft[key] ?? ""));
-  }, [draft, ssoDraft]);
-
-  const ssoEnabled = (draft.SAML_ENABLED ?? "false") === "true";
-  const ssoUrls = useMemo(() => ssoUrlsFrom(ssoDraft), [ssoDraft]);
-
-  function openSsoModal() {
+  function openSectionModal(id: Exclude<ModalId, "audit">) {
+    const keys = id === "sso" ? SSO_KEYS : SECTION_KEYS[id];
     const next: Record<string, string> = {};
-    for (const key of SSO_KEYS) next[key] = draft[key] ?? "";
-    setSsoDraft(next);
-    setSsoError(null);
-    setSsoMessage(null);
-    setSsoOpen(true);
-  }
-
-  function closeSsoModal() {
-    if (savingSso) return;
-    setSsoOpen(false);
-    setSsoError(null);
-    setSsoMessage(null);
+    for (const key of keys) next[key] = live[key] ?? "";
+    setModalDraft(next);
+    setModalError(null);
+    setModalMessage(null);
+    setActiveModal(id);
   }
 
   function openAuditModal() {
     setAuditDraft(new Set(auditSaved));
-    setAuditError(null);
-    setAuditMessage(null);
-    setAuditOpen(true);
+    setModalError(null);
+    setModalMessage(null);
+    setActiveModal("audit");
   }
 
-  function closeAuditModal() {
-    if (savingAudit) return;
-    setAuditOpen(false);
-    setAuditError(null);
-    setAuditMessage(null);
+  function closeModal() {
+    if (savingModal || logoBusy) return;
+    setActiveModal(null);
+    setModalError(null);
+    setModalMessage(null);
   }
 
   function toggleAuditAction(id: string) {
@@ -321,8 +449,8 @@ export function SettingsPage() {
   async function onUploadLogo(file: File | null) {
     if (!file) return;
     setLogoBusy(true);
-    setLogoError(null);
-    setLogoMessage(null);
+    setModalError(null);
+    setModalMessage(null);
     try {
       const data = await fileToBase64(file);
       const result = await uploadAdminLogo(
@@ -331,18 +459,19 @@ export function SettingsPage() {
       );
       setLogo(result.logo);
       onMe({ ...me, logoUrl: result.logo.url });
-      setLogoMessage("Logo uploaded.");
+      setModalMessage("Logo uploaded.");
+      setHubMessage("Site logo updated.");
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.code === "unsupported_logo_type") {
-          setLogoError("Use a PNG, JPEG, WebP, or GIF image.");
+          setModalError("Use a PNG, JPEG, WebP, or GIF image.");
         } else if (err.code === "logo_too_large") {
-          setLogoError("Logo must be 1 MB or smaller.");
+          setModalError("Logo must be 1 MB or smaller.");
         } else {
-          setLogoError(err.message && err.message !== err.code ? err.message : "Unable to upload logo.");
+          setModalError(err.message && err.message !== err.code ? err.message : "Unable to upload logo.");
         }
       } else {
-        setLogoError("Unable to upload logo.");
+        setModalError("Unable to upload logo.");
       }
     } finally {
       setLogoBusy(false);
@@ -352,116 +481,114 @@ export function SettingsPage() {
 
   async function onRemoveLogo() {
     setLogoBusy(true);
-    setLogoError(null);
-    setLogoMessage(null);
+    setModalError(null);
+    setModalMessage(null);
     try {
       await deleteAdminLogo(me.csrfToken);
       setLogo(null);
       onMe({ ...me, logoUrl: null });
-      setLogoMessage("Custom logo removed.");
+      setModalMessage("Custom logo removed.");
+      setHubMessage("Custom logo removed.");
     } catch {
-      setLogoError("Unable to remove logo.");
+      setModalError("Unable to remove logo.");
     } finally {
       setLogoBusy(false);
     }
   }
 
-  async function onSaveSettings() {
-    if (dirtyKeys.length === 0) return;
-    setSavingSettings(true);
-    setSettingsMessage(null);
-    setError(null);
+  async function applyLiveFromResult(result: {
+    editable: AdminSettingField[];
+    readonly: AdminReadonlySetting[];
+  }) {
+    setEditable(result.editable);
+    setReadonly(result.readonly);
+    const next: Record<string, string> = {};
+    for (const field of result.editable) next[field.key] = field.value;
+    setLive(next);
+    return next;
+  }
+
+  async function onSaveSection() {
+    if (!activeModal || activeModal === "audit") return;
+    if (modalDirtyKeys.length === 0) {
+      setModalMessage("No changes to save.");
+      return;
+    }
+    setSavingModal(true);
+    setModalError(null);
+    setModalMessage(null);
     const patch: Record<string, string> = {};
-    for (const key of dirtyKeys) patch[key] = draft[key] ?? "";
+    for (const key of modalDirtyKeys) patch[key] = modalDraft[key] ?? "";
     try {
       const result = await updateAdminSettings(patch, me.csrfToken);
-      setEditable(result.editable);
-      setReadonly(result.readonly);
-      const next: Record<string, string> = {};
-      for (const field of result.editable) next[field.key] = field.value;
-      setDraft(next);
+      const next = await applyLiveFromResult(result);
+      const refreshed: Record<string, string> = {};
+      const keys =
+        activeModal === "sso" ? SSO_KEYS : SECTION_KEYS[activeModal as Exclude<ModalId, "sso" | "audit">];
+      for (const key of keys) refreshed[key] = next[key] ?? "";
+      setModalDraft(refreshed);
+
       const siteName = next.SITE_NAME?.trim();
       if (siteName && siteName !== me.siteName) {
         onMe({ ...me, siteName });
         document.title = siteName;
       }
-      setSettingsMessage(`Saved ${result.updated.length} setting(s).`);
+
+      const label =
+        activeModal === "sso"
+          ? "Sign-in"
+          : activeModal === "branding"
+            ? "Branding"
+            : activeModal === "security"
+              ? "Security"
+              : activeModal === "sessions"
+                ? "Sessions"
+                : activeModal === "browser"
+                  ? "Browser capacity"
+                  : activeModal === "streaming"
+                    ? "Streaming"
+                    : "Advanced";
+      setModalMessage(`Saved ${result.updated.length} setting(s).`);
+      setHubMessage(`${label} settings saved.`);
     } catch (err) {
-      setError(
+      setModalError(
         err instanceof ApiError && err.message && err.message !== err.code
           ? err.message
           : "Unable to save settings.",
       );
     } finally {
-      setSavingSettings(false);
-    }
-  }
-
-  async function onSaveSso() {
-    if (ssoDirtyKeys.length === 0) {
-      setSsoMessage("No SSO changes to save.");
-      return;
-    }
-    setSavingSso(true);
-    setSsoMessage(null);
-    setSsoError(null);
-    const patch: Record<string, string> = {};
-    for (const key of ssoDirtyKeys) patch[key] = ssoDraft[key] ?? "";
-    try {
-      const result = await updateAdminSettings(patch, me.csrfToken);
-      setEditable(result.editable);
-      setReadonly(result.readonly);
-      const next: Record<string, string> = {};
-      for (const field of result.editable) next[field.key] = field.value;
-      setDraft(next);
-      const refreshed: Record<string, string> = {};
-      for (const key of SSO_KEYS) refreshed[key] = next[key] ?? "";
-      setSsoDraft(refreshed);
-      setSsoMessage(`Saved ${result.updated.length} SSO setting(s).`);
-      setSettingsMessage(`Saved ${result.updated.length} SSO setting(s).`);
-    } catch (err) {
-      setSsoError(
-        err instanceof ApiError && err.message && err.message !== err.code
-          ? err.message
-          : "Unable to save SSO settings.",
-      );
-    } finally {
-      setSavingSso(false);
+      setSavingModal(false);
     }
   }
 
   async function onSaveAudit() {
     if (!auditDirty) {
-      setAuditMessage("No audit logging changes to save.");
+      setModalMessage("No audit logging changes to save.");
       return;
     }
-    setSavingAudit(true);
-    setAuditMessage(null);
-    setAuditError(null);
+    setSavingModal(true);
+    setModalError(null);
+    setModalMessage(null);
     const enabled = auditCatalog.map((item) => item.id).filter((id) => auditDraft.has(id));
     try {
       const result = await updateAdminSettings(
         { AUDIT_ENABLED_ACTIONS: JSON.stringify(enabled) },
         me.csrfToken,
       );
-      setEditable(result.editable);
-      setReadonly(result.readonly);
-      const next: Record<string, string> = {};
-      for (const field of result.editable) next[field.key] = field.value;
-      setDraft(next);
+      await applyLiveFromResult(result);
       const saved = new Set(enabled);
       setAuditSaved(saved);
       setAuditDraft(new Set(saved));
-      setAuditMessage(`Saved ${enabled.length} logged action(s).`);
-      setSettingsMessage("Audit logging settings saved.");
+      setModalMessage(`Saved ${enabled.length} logged action(s).`);
+      setHubMessage("Audit logging settings saved.");
     } catch (err) {
-      setAuditError(
+      setModalError(
         err instanceof ApiError && err.message && err.message !== err.code
           ? err.message
           : "Unable to save audit settings.",
       );
     } finally {
-      setSavingAudit(false);
+      setSavingModal(false);
     }
   }
 
@@ -470,7 +597,6 @@ export function SettingsPage() {
     values: Record<string, string>,
     setValues: (updater: (prev: Record<string, string>) => Record<string, string>) => void,
     disabled: boolean,
-    opts?: { compact?: boolean },
   ): ReactNode {
     const value = values[field.key] ?? field.value;
     const common = {
@@ -537,7 +663,6 @@ export function SettingsPage() {
         max={field.max}
         step={field.key === "BROWSER_CPUS" ? "0.25" : undefined}
         value={value}
-        placeholder={opts?.compact ? undefined : undefined}
         onChange={(event) =>
           setValues((prev) => ({ ...prev, [field.key]: event.target.value }))
         }
@@ -545,171 +670,145 @@ export function SettingsPage() {
     );
   }
 
+  function renderFieldList(fields: AdminSettingField[]) {
+    return (
+      <div className="settings-grid sso-modal-grid">
+        {fields.map((field) => (
+          <div
+            key={field.key}
+            className={
+              field.type === "text" || field.type === "json" || field.key === "SAML_IDP_CERT"
+                ? "settings-field settings-field-wide"
+                : "settings-field"
+            }
+          >
+            <div className="settings-field-label">
+              <label htmlFor={`setting-${field.key}`}>{field.label}</label>
+              {activeModal === "sso" ? (
+                <HelpTip text={SSO_HELP[field.key] ?? field.description} />
+              ) : null}
+              {field.overridden ? <span className="settings-tag">saved</span> : null}
+              {field.appliesToNewSessions ? (
+                <span className="settings-tag muted">new sessions</span>
+              ) : null}
+            </div>
+            {activeModal === "sso" ? null : <p className="hint">{field.description}</p>}
+            {renderField(field, modalDraft, setModalDraft, savingModal || logoBusy)}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  const brandingStatus = [
+    logo ? "Custom logo" : "Default mark",
+    live.SITE_NAME?.trim() || "Browser Isolation",
+  ];
+  const securityStatus = [
+    boolLabel(live.ALLOW_CLIPBOARD, "Clipboard on", "Clipboard off"),
+    boolLabel(live.ALLOW_DOWNLOADS, "Downloads on", "Downloads off"),
+  ];
+  const sessionsStatus = [
+    `Login ${live.SESSION_TTL_HOURS || "24"}h`,
+    `Idle ${live.IDLE_TIMEOUT_MINUTES || "60"}m`,
+    `Max ${live.MAX_SESSION_HOURS || "12"}h`,
+    boolLabel(live.PERSIST_PROFILES_ENABLED, "Profiles on", "Profiles off"),
+  ];
+  const browserStatus = [
+    `${live.BROWSER_CPUS || "3"} CPU`,
+    live.BROWSER_MEMORY || "2g",
+    `${live.BROWSER_SHM_SIZE || "2gb"} shm`,
+  ];
+  const streamingStatus = [
+    (live.CAPTURE_VIDEO_CODEC || "vp8").toUpperCase(),
+    live.DESKTOP_SCREEN || "1280x720@30",
+    boolLabel(live.WEBRTC_ICELITE, "ICE lite", "Full ICE"),
+  ];
+  const advancedStatus = [
+    boolLabel(live.TRUST_PROXY, "Trust proxy", "Direct"),
+    boolLabel(live.COOKIE_SECURE, "Secure cookies", "HTTP cookies"),
+  ];
+
   return (
     <>
-      <section className="card wide">
+      <section className="card wide settings-hub-page">
         <div className="panel-header">
           <div>
             <h1>Settings</h1>
             <p className="hint">
-              Runtime options for the portal. Changes save to the database and apply immediately
-              where possible.
+              Configure branding, access, security, and runtime options. Open a section to review
+              and save changes.
             </p>
           </div>
-          <button
-            type="button"
-            className="button-primary"
-            disabled={savingSettings || dirtyKeys.length === 0}
-            onClick={() => void onSaveSettings()}
-          >
-            {savingSettings
-              ? "Saving…"
-              : dirtyKeys.length
-                ? `Save ${dirtyKeys.length} change(s)`
-                : "No changes"}
-          </button>
         </div>
         {error ? (
           <p className="alert" role="alert">
             {error}
           </p>
         ) : null}
-        {settingsMessage ? <p className="settings-saved">{settingsMessage}</p> : null}
+        {hubMessage ? <p className="settings-saved">{hubMessage}</p> : null}
 
         {editable ? (
-          <div className="settings-stack">
-            <div className="branding-card">
-              <div className="branding-card-copy">
-                <h2>Site logo</h2>
-                <p className="hint">
-                  Shown in the top bar and on the login page. PNG, JPEG, WebP, or GIF up to 1 MB.
-                </p>
-                {logoError ? (
-                  <p className="alert" role="alert">
-                    {logoError}
-                  </p>
-                ) : null}
-                {logoMessage ? <p className="settings-saved">{logoMessage}</p> : null}
-                <div className="branding-actions">
-                  <input
-                    ref={logoInputRef}
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif"
-                    hidden
-                    onChange={(event) => void onUploadLogo(event.target.files?.[0] ?? null)}
-                  />
-                  <button
-                    type="button"
-                    className="button-primary"
-                    disabled={logoBusy}
-                    onClick={() => logoInputRef.current?.click()}
-                  >
-                    {logoBusy ? "Working…" : logo ? "Replace logo" : "Upload logo"}
-                  </button>
-                  {logo ? (
-                    <button
-                      type="button"
-                      className="button-quiet"
-                      disabled={logoBusy}
-                      onClick={() => void onRemoveLogo()}
-                    >
-                      Remove
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-              <div className="branding-preview" aria-hidden="true">
-                {logo ? (
-                  <img className="brand-logo large" src={logo.url} alt="" width={56} height={56} />
+          <div className="settings-hub">
+            <SettingsCard
+              title="Branding"
+              hint="Site name and logo shown in the portal chrome and login page."
+              status={brandingStatus}
+              onConfigure={() => openSectionModal("branding")}
+              media={
+                logo ? (
+                  <img className="brand-logo" src={logo.url} alt="" width={36} height={36} />
                 ) : (
-                  <div className="brand-mark large" />
-                )}
-              </div>
-            </div>
-
-            <div className="sso-summary">
-              <div className="sso-summary-copy">
-                <div className="sso-summary-title">
-                  <h2>SSO / SAML</h2>
-                  <span className={ssoEnabled ? "session-pill" : "session-pill idle"}>
-                    {ssoEnabled ? "On" : "Off"}
-                  </span>
-                </div>
-                <p className="hint">
-                  Connect Google, Microsoft Entra, or any SAML 2.0 IdP. Local login stays available.
-                </p>
-              </div>
-              <button type="button" className="sso-configure" onClick={openSsoModal}>
-                Configure
-              </button>
-            </div>
-
-            <div className="sso-summary">
-              <div className="sso-summary-copy">
-                <div className="sso-summary-title">
-                  <h2>Audit log</h2>
-                  <span className="session-pill idle">
-                    {auditTotalCount
-                      ? `${auditEnabledCount}/${auditTotalCount} actions`
-                      : `${auditEnabledCount} action(s)`}
-                  </span>
-                </div>
-                <p className="hint">
-                  Choose which administrator and user actions are recorded in the audit log.
-                </p>
-              </div>
-              <button type="button" className="sso-configure" onClick={openAuditModal}>
-                Configure
-              </button>
-            </div>
-
-            {SETTING_GROUPS.map((group) => {
-              const fields = editable.filter((field) => field.group === group.id);
-              if (fields.length === 0) return null;
-              return (
-                <div key={group.id} className="settings-group">
-                  <div className="settings-group-head">
-                    <h2>{group.title}</h2>
-                    <p className="hint">{group.hint}</p>
-                  </div>
-                  <div className="settings-grid">
-                    {fields.map((field) => (
-                      <div key={field.key} className="settings-field">
-                      <div className="settings-field-label">
-                        <label htmlFor={`setting-${field.key}`}>{field.label}</label>
-                        {field.overridden ? <span className="settings-tag">saved</span> : null}
-                        {field.appliesToNewSessions ? (
-                          <span className="settings-tag muted">new sessions</span>
-                        ) : null}
-                      </div>
-                      <p className="hint">{field.description}</p>
-                      {renderField(field, draft, setDraft, savingSettings)}
-                    </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-
-            {readonly && readonly.length > 0 ? (
-              <div className="settings-group">
-                <div className="settings-group-head">
-                  <h2>Infrastructure</h2>
-                  <p className="hint">Read-only values from the host environment. Restart to change.</p>
-                </div>
-                <div className="settings-grid readonly">
-                  {readonly.map((field) => (
-                    <div key={field.key} className="settings-field">
-                      <div className="settings-field-label">
-                        <span>{field.label}</span>
-                      </div>
-                      <p className="hint">{field.description}</p>
-                      <code className="settings-readonly-value">{field.value}</code>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
+                  <span className="brand-dot" aria-hidden="true" />
+                )
+              }
+            />
+            <SettingsCard
+              title="Sign-in"
+              hint="Connect Google, Microsoft Entra, or any SAML 2.0 identity provider."
+              status={[ssoEnabled ? "SSO on" : "SSO off", "Local login available"]}
+              onConfigure={() => openSectionModal("sso")}
+            />
+            <SettingsCard
+              title="Security"
+              hint="Control clipboard and file transfer between users and isolated browsers."
+              status={securityStatus}
+              onConfigure={() => openSectionModal("security")}
+            />
+            <SettingsCard
+              title="Sessions"
+              hint="Portal login lifetime, persistent profiles, and browser session cleanup."
+              status={sessionsStatus}
+              onConfigure={() => openSectionModal("sessions")}
+            />
+            <SettingsCard
+              title="Browser capacity"
+              hint="CPU, memory, and shared-memory limits for each isolated browser."
+              status={browserStatus}
+              onConfigure={() => openSectionModal("browser")}
+            />
+            <SettingsCard
+              title="Streaming"
+              hint="WebRTC candidates, ICE, desktop geometry, and capture codec."
+              status={streamingStatus}
+              onConfigure={() => openSectionModal("streaming")}
+            />
+            <SettingsCard
+              title="Audit log"
+              hint="Choose which administrator and user actions are recorded."
+              status={[
+                auditTotalCount
+                  ? `${auditEnabledCount}/${auditTotalCount} actions`
+                  : `${auditEnabledCount} action(s)`,
+              ]}
+              onConfigure={openAuditModal}
+            />
+            <SettingsCard
+              title="Advanced"
+              hint="Proxy trust, cookie security, and read-only host infrastructure details."
+              status={advancedStatus}
+              onConfigure={() => openSectionModal("advanced")}
+            />
           </div>
         ) : error ? null : (
           <p className="hint">
@@ -718,228 +817,277 @@ export function SettingsPage() {
         )}
       </section>
 
-      {ssoOpen ? (
-        <div className="modal-backdrop" role="presentation" onClick={closeSsoModal}>
-          <div
-            className="modal-panel modal-panel-sso"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="sso-config-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="modal-panel-sso-body">
-              <div className="panel-header">
-                <div>
-                  <h2 id="sso-config-title">SSO / SAML</h2>
-                </div>
+      {activeModal === "branding" ? (
+        <SettingsModal
+          title="Branding"
+          hint="Update the portal name and optional custom logo."
+          busy={savingModal || logoBusy}
+          dirty={modalDirty}
+          error={modalError}
+          message={modalMessage}
+          onClose={closeModal}
+          onSave={() => void onSaveSection()}
+        >
+          <div className="branding-modal-layout">
+            <div className="branding-modal-preview" aria-hidden="true">
+              {logo ? (
+                <img className="brand-logo large" src={logo.url} alt="" width={56} height={56} />
+              ) : (
+                <div className="brand-mark large" />
+              )}
+              <p className="hint">{logo ? logo.filename : "Default mark"}</p>
+            </div>
+            <div className="branding-modal-controls">
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif"
+                hidden
+                onChange={(event) => void onUploadLogo(event.target.files?.[0] ?? null)}
+              />
+              <div className="branding-actions">
                 <button
                   type="button"
-                  className="modal-close"
-                  onClick={closeSsoModal}
-                  disabled={savingSso}
-                  aria-label="Close"
+                  className="button-primary"
+                  disabled={savingModal || logoBusy}
+                  onClick={() => logoInputRef.current?.click()}
                 >
-                  ×
+                  {logoBusy ? "Working…" : logo ? "Replace logo" : "Upload logo"}
                 </button>
-              </div>
-
-              {ssoError ? (
-                <p className="alert" role="alert">
-                  {ssoError}
-                </p>
-              ) : null}
-              {ssoMessage ? <p className="settings-saved">{ssoMessage}</p> : null}
-
-              <div className="sso-sp-card">
-                <p className="sso-sp-heading">
-                  Values to paste into your IdP
-                  <HelpTip text="Register this portal in Entra, Google Workspace, or any SAML 2.0 IdP using these service-provider URLs." />
-                </p>
-                <CopyRow
-                  label="ACS / Reply URL"
-                  value={ssoUrls.acsUrl}
-                  help={SP_HELP.acsUrl}
-                  copyable={ssoUrls.ready}
-                />
-                <CopyRow
-                  label="Metadata URL"
-                  value={ssoUrls.metadataUrl}
-                  help={SP_HELP.metadataUrl}
-                  copyable={ssoUrls.ready}
-                />
-                <CopyRow
-                  label="Entity ID / Audience"
-                  value={ssoUrls.entityId}
-                  help={SP_HELP.entityId}
-                  copyable={ssoUrls.ready}
-                />
-                <CopyRow
-                  label="Name ID format"
-                  value="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
-                  help={SP_HELP.nameId}
-                  copyable
-                />
-              </div>
-
-              <div className="settings-grid sso-modal-grid">
-                {ssoFields.map((field) => (
-                  <div
-                    key={field.key}
-                    className={
-                      field.type === "text" || field.key === "SAML_IDP_CERT"
-                        ? "settings-field settings-field-wide"
-                        : "settings-field"
-                    }
+                {logo ? (
+                  <button
+                    type="button"
+                    className="button-quiet"
+                    disabled={savingModal || logoBusy}
+                    onClick={() => void onRemoveLogo()}
                   >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+              <p className="hint">PNG, JPEG, WebP, or GIF up to 1 MB. Logo saves immediately.</p>
+            </div>
+          </div>
+          {renderFieldList(brandingFields)}
+        </SettingsModal>
+      ) : null}
+
+      {activeModal === "sso" ? (
+        <SettingsModal
+          title="Sign-in / SSO"
+          hint="Register this portal with your identity provider, then paste IdP values below."
+          busy={savingModal}
+          dirty={modalDirty}
+          error={modalError}
+          message={modalMessage}
+          onClose={closeModal}
+          onSave={() => void onSaveSection()}
+          wide
+        >
+          <div className="sso-sp-card">
+            <p className="sso-sp-heading">
+              Values to paste into your IdP
+              <HelpTip text="Register this portal in Entra, Google Workspace, or any SAML 2.0 IdP using these service-provider URLs." />
+            </p>
+            <CopyRow
+              label="ACS / Reply URL"
+              value={ssoUrls.acsUrl}
+              help={SP_HELP.acsUrl}
+              copyable={ssoUrls.ready}
+            />
+            <CopyRow
+              label="Metadata URL"
+              value={ssoUrls.metadataUrl}
+              help={SP_HELP.metadataUrl}
+              copyable={ssoUrls.ready}
+            />
+            <CopyRow
+              label="Entity ID / Audience"
+              value={ssoUrls.entityId}
+              help={SP_HELP.entityId}
+              copyable={ssoUrls.ready}
+            />
+            <CopyRow
+              label="Name ID format"
+              value="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
+              help={SP_HELP.nameId}
+              copyable
+            />
+          </div>
+          {renderFieldList(ssoFields)}
+        </SettingsModal>
+      ) : null}
+
+      {activeModal === "security" ? (
+        <SettingsModal
+          title="Security"
+          hint="Data transfer controls between users and isolated browsers."
+          busy={savingModal}
+          dirty={modalDirty}
+          error={modalError}
+          message={modalMessage}
+          onClose={closeModal}
+          onSave={() => void onSaveSection()}
+        >
+          {renderFieldList(securityFields)}
+        </SettingsModal>
+      ) : null}
+
+      {activeModal === "sessions" ? (
+        <SettingsModal
+          title="Sessions"
+          hint="Portal login lifetime, profile persistence, and browser session cleanup."
+          busy={savingModal}
+          dirty={modalDirty}
+          error={modalError}
+          message={modalMessage}
+          onClose={closeModal}
+          onSave={() => void onSaveSection()}
+        >
+          {renderFieldList(sessionsFields)}
+        </SettingsModal>
+      ) : null}
+
+      {activeModal === "browser" ? (
+        <SettingsModal
+          title="Browser capacity"
+          hint="Resource limits applied when launching a new isolated browser."
+          busy={savingModal}
+          dirty={modalDirty}
+          error={modalError}
+          message={modalMessage}
+          onClose={closeModal}
+          onSave={() => void onSaveSection()}
+        >
+          {renderFieldList(browserFields)}
+        </SettingsModal>
+      ) : null}
+
+      {activeModal === "streaming" ? (
+        <SettingsModal
+          title="Streaming"
+          hint="WebRTC and media settings for remote desktop sessions."
+          busy={savingModal}
+          dirty={modalDirty}
+          error={modalError}
+          message={modalMessage}
+          onClose={closeModal}
+          onSave={() => void onSaveSection()}
+          wide
+        >
+          {renderFieldList(streamingFields)}
+        </SettingsModal>
+      ) : null}
+
+      {activeModal === "advanced" ? (
+        <SettingsModal
+          title="Advanced"
+          hint="Proxy and cookie flags, plus read-only host infrastructure."
+          busy={savingModal}
+          dirty={modalDirty}
+          error={modalError}
+          message={modalMessage}
+          onClose={closeModal}
+          onSave={() => void onSaveSection()}
+        >
+          {renderFieldList(advancedFields)}
+          {readonly && readonly.length > 0 ? (
+            <div className="settings-group advanced-readonly">
+              <div className="settings-group-head">
+                <h3>Infrastructure</h3>
+                <p className="hint">Read-only values from the host environment. Restart to change.</p>
+              </div>
+              <div className="settings-grid readonly">
+                {readonly.map((field) => (
+                  <div key={field.key} className="settings-field">
                     <div className="settings-field-label">
-                      <label htmlFor={`setting-${field.key}`}>{field.label}</label>
-                      <HelpTip text={SSO_HELP[field.key] ?? field.description} />
-                      {field.overridden ? <span className="settings-tag">override</span> : null}
+                      <span>{field.label}</span>
                     </div>
-                    {renderField(field, ssoDraft, setSsoDraft, savingSso, { compact: true })}
+                    <p className="hint">{field.description}</p>
+                    <code className="settings-readonly-value">{field.value}</code>
                   </div>
                 ))}
               </div>
             </div>
-
-            <div className="modal-panel-sso-footer">
-              <button type="button" className="button-quiet" onClick={closeSsoModal} disabled={savingSso}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="button-primary"
-                disabled={savingSso || ssoDirtyKeys.length === 0}
-                onClick={() => void onSaveSso()}
-              >
-                {savingSso
-                  ? "Saving…"
-                  : ssoDirtyKeys.length
-                    ? `Save ${ssoDirtyKeys.length} change(s)`
-                    : "Save"}
-              </button>
-            </div>
-          </div>
-        </div>
+          ) : null}
+        </SettingsModal>
       ) : null}
 
-      {auditOpen ? (
-        <div className="modal-backdrop" role="presentation" onClick={closeAuditModal}>
-          <div
-            className="modal-panel modal-panel-sso"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="audit-config-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="modal-panel-sso-body">
-              <div className="panel-header">
-                <div>
-                  <h2 id="audit-config-title">Audit log</h2>
-                  <p className="hint">Select which actions are written to the audit log.</p>
-                </div>
-                <button
-                  type="button"
-                  className="modal-close"
-                  onClick={closeAuditModal}
-                  disabled={savingAudit}
-                  aria-label="Close"
-                >
-                  ×
-                </button>
-              </div>
-
-              {auditError ? (
-                <p className="alert" role="alert">
-                  {auditError}
-                </p>
-              ) : null}
-              {auditMessage ? <p className="settings-saved">{auditMessage}</p> : null}
-
-              {(
-                [
-                  {
-                    id: "admin" as const,
-                    title: "Administrators",
-                    hint: "Joining sessions, terminating sessions, volumes, workers, browsers, and settings.",
-                  },
-                  {
-                    id: "user" as const,
-                    title: "Users",
-                    hint: "Account changes, logins, logouts, and browser session lifecycle.",
-                  },
-                ] as const
-              ).map((group) => {
-                const items = auditCatalog.filter((item) => item.category === group.id);
-                if (items.length === 0) return null;
-                const enabledInGroup = items.filter((item) => auditDraft.has(item.id)).length;
-                return (
-                  <div key={group.id} className="audit-config-group">
-                    <div className="audit-config-group-head">
-                      <div>
-                        <h3>{group.title}</h3>
-                        <p className="hint">{group.hint}</p>
-                      </div>
-                      <div className="audit-config-group-actions">
-                        <button
-                          type="button"
-                          className="button-quiet"
-                          disabled={savingAudit || enabledInGroup === items.length}
-                          onClick={() => setAuditCategory(group.id, true)}
-                        >
-                          All
-                        </button>
-                        <button
-                          type="button"
-                          className="button-quiet"
-                          disabled={savingAudit || enabledInGroup === 0}
-                          onClick={() => setAuditCategory(group.id, false)}
-                        >
-                          None
-                        </button>
-                      </div>
-                    </div>
-                    <div className="audit-config-list">
-                      {items.map((item) => (
-                        <label key={item.id} className="audit-config-item">
-                          <input
-                            type="checkbox"
-                            checked={auditDraft.has(item.id)}
-                            disabled={savingAudit}
-                            onChange={() => toggleAuditAction(item.id)}
-                          />
-                          <span>
-                            <strong>{item.label}</strong>
-                            <span className="hint">{item.description}</span>
-                          </span>
-                        </label>
-                      ))}
-                    </div>
+      {activeModal === "audit" ? (
+        <SettingsModal
+          title="Audit log"
+          hint="Select which actions are written to the audit log."
+          busy={savingModal}
+          dirty={modalDirty}
+          error={modalError}
+          message={modalMessage}
+          onClose={closeModal}
+          onSave={() => void onSaveAudit()}
+          wide
+        >
+          {(
+            [
+              {
+                id: "admin" as const,
+                title: "Administrators",
+                hint: "Joining sessions, terminating sessions, volumes, workers, browsers, and settings.",
+              },
+              {
+                id: "user" as const,
+                title: "Users",
+                hint: "Account changes, logins, logouts, and browser session lifecycle.",
+              },
+            ] as const
+          ).map((group) => {
+            const items = auditCatalog.filter((item) => item.category === group.id);
+            if (items.length === 0) return null;
+            const enabledInGroup = items.filter((item) => auditDraft.has(item.id)).length;
+            return (
+              <div key={group.id} className="audit-config-group">
+                <div className="audit-config-group-head">
+                  <div>
+                    <h3>{group.title}</h3>
+                    <p className="hint">{group.hint}</p>
                   </div>
-                );
-              })}
-            </div>
-
-            <div className="modal-panel-sso-footer">
-              <button
-                type="button"
-                className="button-quiet"
-                onClick={closeAuditModal}
-                disabled={savingAudit}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="button-primary"
-                disabled={savingAudit || !auditDirty}
-                onClick={() => void onSaveAudit()}
-              >
-                {savingAudit ? "Saving…" : auditDirty ? "Save changes" : "Save"}
-              </button>
-            </div>
-          </div>
-        </div>
+                  <div className="audit-config-group-actions">
+                    <button
+                      type="button"
+                      className="button-quiet"
+                      disabled={savingModal || enabledInGroup === items.length}
+                      onClick={() => setAuditCategory(group.id, true)}
+                    >
+                      All
+                    </button>
+                    <button
+                      type="button"
+                      className="button-quiet"
+                      disabled={savingModal || enabledInGroup === 0}
+                      onClick={() => setAuditCategory(group.id, false)}
+                    >
+                      None
+                    </button>
+                  </div>
+                </div>
+                <div className="audit-config-list">
+                  {items.map((item) => (
+                    <label key={item.id} className="audit-config-item">
+                      <input
+                        type="checkbox"
+                        checked={auditDraft.has(item.id)}
+                        disabled={savingModal}
+                        onChange={() => toggleAuditAction(item.id)}
+                      />
+                      <span>
+                        <strong>{item.label}</strong>
+                        <span className="hint">{item.description}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </SettingsModal>
       ) : null}
     </>
   );
