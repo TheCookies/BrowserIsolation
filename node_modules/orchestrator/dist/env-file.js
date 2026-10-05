@@ -2,10 +2,11 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.loadEnvFile = loadEnvFile;
 const node_fs_1 = require("node:fs");
-/** Load KEY=VALUE lines into process.env without overriding variables already set. */
-function loadEnvFile(filePath) {
+/** Load KEY=VALUE lines into process.env. */
+function loadEnvFile(filePath, options) {
     if (!(0, node_fs_1.existsSync)(filePath))
         return;
+    const override = options?.override === true;
     const text = (0, node_fs_1.readFileSync)(filePath, "utf8");
     for (const rawLine of text.split(/\r?\n/)) {
         const line = rawLine.trim();
@@ -20,7 +21,7 @@ function loadEnvFile(filePath) {
             (value.startsWith("'") && value.endsWith("'"))) {
             value = value.slice(1, -1);
         }
-        if (process.env[key] === undefined) {
+        if (override || process.env[key] === undefined) {
             process.env[key] = value;
         }
     }

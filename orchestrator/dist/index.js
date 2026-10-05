@@ -26,7 +26,10 @@ const scheduler_1 = require("./workers/scheduler");
 const store_1 = require("./workers/store");
 async function main() {
     const baseDir = node_path_1.default.resolve(__dirname, "../..");
+    // Compose/local: /app/.env. Alma/Podman: host-mounted /config/.env (wins).
     (0, env_file_1.loadEnvFile)(node_path_1.default.join(baseDir, ".env"));
+    const configDir = process.env.CONFIG_DIR?.trim() || "/config";
+    (0, env_file_1.loadEnvFile)(node_path_1.default.join(configDir, ".env"), { override: true });
     const config = (0, config_1.loadConfig)(process.env, baseDir);
     const db = (0, db_1.openDatabase)(config.databasePath);
     const settings = (0, settings_store_1.createSettingsStore)(db, config);
@@ -160,6 +163,11 @@ async function main() {
         });
         stopPoller = poller.stop;
         void poller.runOnce();
+        app.log.info({
+            publicIp: config.publicIp,
+            browserNetworkMode: config.browserNetworkMode,
+            webrtcPorts: `${config.webrtcPortStart}-${config.webrtcPortEnd}`,
+        }, "orchestrator network config");
         await app.listen({ port: config.port, host: config.host });
     }
     catch (error) {

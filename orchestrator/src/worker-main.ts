@@ -9,6 +9,8 @@ import { createMemoryPortPool } from "./workers/memory-port-pool";
 async function main(): Promise<void> {
   const baseDir = path.resolve(__dirname, "../..");
   loadEnvFile(path.join(baseDir, ".env"));
+  const configDir = process.env.CONFIG_DIR?.trim() || "/config";
+  loadEnvFile(path.join(configDir, ".env"), { override: true });
   const config = loadConfig(process.env, baseDir);
 
   const workerId = process.env.WORKER_ID?.trim() || "worker";

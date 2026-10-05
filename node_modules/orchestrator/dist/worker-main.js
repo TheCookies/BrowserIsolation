@@ -13,6 +13,8 @@ const memory_port_pool_1 = require("./workers/memory-port-pool");
 async function main() {
     const baseDir = node_path_1.default.resolve(__dirname, "../..");
     (0, env_file_1.loadEnvFile)(node_path_1.default.join(baseDir, ".env"));
+    const configDir = process.env.CONFIG_DIR?.trim() || "/config";
+    (0, env_file_1.loadEnvFile)(node_path_1.default.join(configDir, ".env"), { override: true });
     const config = (0, config_1.loadConfig)(process.env, baseDir);
     const workerId = process.env.WORKER_ID?.trim() || "worker";
     const token = process.env.WORKER_TOKEN?.trim();

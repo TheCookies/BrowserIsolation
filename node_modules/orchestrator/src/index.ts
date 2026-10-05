@@ -26,7 +26,10 @@ import { createWorkerStore, parseWorkersEnv } from "./workers/store";
 
 async function main(): Promise<void> {
   const baseDir = path.resolve(__dirname, "../..");
+  // Compose/local: /app/.env. Alma/Podman: host-mounted /config/.env (wins).
   loadEnvFile(path.join(baseDir, ".env"));
+  const configDir = process.env.CONFIG_DIR?.trim() || "/config";
+  loadEnvFile(path.join(configDir, ".env"), { override: true });
   const config = loadConfig(process.env, baseDir);
   const db = openDatabase(config.databasePath);
   const settings = createSettingsStore(db, config);
@@ -168,6 +171,14 @@ async function main(): Promise<void> {
     stopPoller = poller.stop;
     void poller.runOnce();
 
+    app.log.info(
+      {
+        publicIp: config.publicIp,
+        browserNetworkMode: config.browserNetworkMode,
+        webrtcPorts: `${config.webrtcPortStart}-${config.webrtcPortEnd}`,
+      },
+      "orchestrator network config",
+    );
     await app.listen({ port: config.port, host: config.host });
   } catch (error) {
     stopReaper?.();

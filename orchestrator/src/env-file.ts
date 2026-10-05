@@ -1,8 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 
-/** Load KEY=VALUE lines into process.env without overriding variables already set. */
-export function loadEnvFile(filePath: string): void {
+/** Load KEY=VALUE lines into process.env. */
+export function loadEnvFile(
+  filePath: string,
+  options?: { override?: boolean },
+): void {
   if (!existsSync(filePath)) return;
+  const override = options?.override === true;
   const text = readFileSync(filePath, "utf8");
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
@@ -17,7 +21,7 @@ export function loadEnvFile(filePath: string): void {
     ) {
       value = value.slice(1, -1);
     }
-    if (process.env[key] === undefined) {
+    if (override || process.env[key] === undefined) {
       process.env[key] = value;
     }
   }
