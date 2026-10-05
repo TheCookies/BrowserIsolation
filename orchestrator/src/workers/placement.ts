@@ -28,6 +28,7 @@ export type WorkerPlacement = {
     persistProfile: boolean;
     subjectId: string;
     browser: string;
+    excludeWorkerIds?: ReadonlySet<string>;
   }): WorkerRecord;
   createBrowser(
     worker: WorkerRecord,
@@ -108,7 +109,10 @@ export function createWorkerPlacement(deps: {
         input.persistProfile
           ? store.getProfilePlacement(input.subjectId, input.browser)
           : null;
-      const workers = store.list();
+      const exclude = input.excludeWorkerIds;
+      const workers = exclude?.size
+        ? store.list().filter((worker) => !exclude.has(worker.id))
+        : store.list();
       // Refresh local active count from SQLite-backed sessions is handled externally;
       // use stored activeSessions for remotes and for local.
       const picked = pickWorker(workers, { stickyWorkerId: sticky });

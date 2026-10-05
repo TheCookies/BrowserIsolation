@@ -30,6 +30,7 @@ function testConfig(dir: string): Config {
     enabledBrowsers: ["google-chrome", "firefox", "brave"],
     nekoImageTag: "test",
     browserNetwork: "rbi-browsers",
+    browserNetworkMode: "bridge" as const,
     browserShmSizeBytes: 2 * 1024 ** 3,
     browserNanoCpus: 1e9,
     browserMemoryBytes: 2 * 1024 ** 3,
@@ -156,7 +157,116 @@ test("launch reconnects to the existing container for the same user", async () =
   rmSync(dir, { recursive: true, force: true });
 });
 
-test("access checks use ownership and admin role, never usernames alone", async () => {
+test("launch abandons a session on a disabled worker and uses an available one", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rbi-worker-failover-"));
+  const config = testConfig(dir);
+  const db = openDatabase(config.databasePath);
+  const preferences = createUserPreferencesStore(db);
+  const store = createBrowserSessionStore(db);
+  const created: string[] = [];
+  const removed: string[] = [];
+  const containers = new Map<string, BrowserContainerInfo>();
+  const runtime = makeRuntime(containers, { created, removed });
+  const { placement, workerStore } = testPlacement(db, config, runtime);
+
+  workerStore.upsert({
+    id: "worker1",
+    baseUrl: "http://worker1:8090",
+    publicIp: "10.0.0.10",
+    token: "secret",
+    enabled: false,
+    kind: "remote",
+    lastSeenAt: Date.now(),
+    activeSessions: 1,
+  });
+
+  const now = Date.now();
+  store.insert({
+    id: "stale-session",
+    ownerUsername: "gus",
+    browser: "google-chrome",
+    containerId: "gone-container",
+    containerName: "rbi-gone",
+    nekoAdminPassword: "a",
+    nekoUserPassword: "u",
+    webrtcPort: 52000,
+    workerId: "worker1",
+    createdAt: now,
+    lastActivityAt: now,
+  });
+
+  const service = createBrowserSessionService({ config, store, placement, neko, preferences });
+  const result = await service.launch(
+    { username: "gus", role: "user", subjectId: "local:gus" },
+    "google-chrome",
+  );
+
+  assert.equal(result.reconnect, false);
+  assert.equal(result.session.workerId, "local");
+  assert.equal(store.getById("stale-session"), null);
+  assert.equal(created.length, 1);
+
+  db.close();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("launch still succeeds when cleaning up a dead worker fails with unauthorized", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rbi-worker-unauth-"));
+  const config = testConfig(dir);
+  const db = openDatabase(config.databasePath);
+  const preferences = createUserPreferencesStore(db);
+  const store = createBrowserSessionStore(db);
+  const created: string[] = [];
+  const containers = new Map<string, BrowserContainerInfo>();
+  const runtime = makeRuntime(containers, { created });
+  const { placement, workerStore } = testPlacement(db, config, runtime);
+
+  // Session points at local, but inspect will fail because container is missing and
+  // remove will throw — launch must still create a fresh session.
+  const now = Date.now();
+  store.insert({
+    id: "broken-session",
+    ownerUsername: "gus",
+    browser: "firefox",
+    containerId: "missing-cid",
+    containerName: "rbi-missing",
+    nekoAdminPassword: "a",
+    nekoUserPassword: "u",
+    webrtcPort: 52000,
+    workerId: "local",
+    createdAt: now,
+    lastActivityAt: now,
+  });
+
+  const originalRemove = runtime.remove.bind(runtime);
+  runtime.remove = async (containerId) => {
+    if (containerId === "missing-cid") {
+      throw new Error("unauthorized");
+    }
+    return originalRemove(containerId);
+  };
+
+  workerStore.touchStatus("local", {
+    lastSeenAt: Date.now(),
+    activeSessions: 1,
+    publicIp: config.publicIp,
+  });
+
+  const service = createBrowserSessionService({ config, store, placement, neko, preferences });
+  const result = await service.launch(
+    { username: "gus", role: "user", subjectId: "local:gus" },
+    "firefox",
+  );
+
+  assert.equal(result.reconnect, false);
+  assert.equal(store.getById("broken-session"), null);
+  assert.equal(result.session.browser, "firefox");
+  assert.equal(created.length, 1);
+
+  db.close();
+  rmSync(dir, { recursive: true, force: true });
+});
+
   const dir = mkdtempSync(path.join(tmpdir(), "rbi-acl-unit-"));
   const config = testConfig(dir);
   const db = openDatabase(config.databasePath);

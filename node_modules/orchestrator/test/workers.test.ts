@@ -49,6 +49,27 @@ test("isWorkerOnline respects heartbeat TTL for remote workers", () => {
   assert.equal(isWorkerOnline(worker({ id: "local", kind: "local" }), now), true);
 });
 
+test("pickWorker skips excluded workers", () => {
+  const now = Date.now();
+  const a = worker({ id: "a", kind: "remote", baseUrl: "http://a", token: "t", activeSessions: 0, lastSeenAt: now });
+  const b = worker({ id: "b", kind: "remote", baseUrl: "http://b", token: "t", activeSessions: 0, lastSeenAt: now });
+  const online = [a, b].filter((workerRecord) => workerRecord.id !== "a");
+  const picked = pickWorker(online, { stickyWorkerId: "a", now });
+  assert.equal(picked?.id, "b");
+});
+
+test("isWorkerOnline is false for disabled workers", () => {
+  const disabled = worker({
+    id: "w",
+    kind: "remote",
+    baseUrl: "http://w",
+    token: "t",
+    enabled: false,
+    lastSeenAt: Date.now(),
+  });
+  assert.equal(isWorkerOnline(disabled), false);
+});
+
 test("parseWorkersEnv validates entries", () => {
   const parsed = parseWorkersEnv("edge1|http://10.0.0.5:8090|10.0.0.5|secret");
   assert.deepEqual(parsed, [

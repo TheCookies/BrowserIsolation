@@ -7,6 +7,7 @@ import { createNekoClient, type NekoClient } from "./neko-client";
 import { randomToken } from "./security";
 import type { UserPreferencesStore } from "./user-preferences";
 import type { WorkerPlacement } from "./workers/placement";
+import { isWorkerOnline } from "./workers/scheduler";
 import type { ProxyTarget } from "./workers/types";
 
 export type LaunchResult = {
@@ -94,6 +95,11 @@ export function createBrowserSessionService(deps: {
   }
 
   async function ensureRunning(session: BrowserSessionRecord): Promise<void> {
+    const worker = placement.getWorker(session.workerId);
+    if (!worker || !isWorkerOnline(worker)) {
+      proxyTargetCache.delete(session.id);
+      throw Object.assign(new Error("session_unavailable"), { statusCode: 503 });
+    }
     const info = await placement.inspect(session.workerId, session.containerId);
     if (!info || !info.running) {
       proxyTargetCache.delete(session.id);
@@ -110,12 +116,18 @@ export function createBrowserSessionService(deps: {
 
   async function destroyRecord(session: BrowserSessionRecord): Promise<void> {
     proxyTargetCache.delete(session.id);
-    try {
-      await placement.remove(session.workerId, session.containerId);
-    } finally {
-      store.delete(session.id);
-      syncLocalActiveCounts();
+    const worker = placement.getWorker(session.workerId);
+    // Only contact the worker while it looks reachable. Offline/disabled workers are
+    // abandoned so launch can proceed on another host; orphans are reconciled later.
+    if (worker && isWorkerOnline(worker)) {
+      try {
+        await placement.remove(session.workerId, session.containerId);
+      } catch {
+        /* ignore unreachable / unauthorized workers during teardown */
+      }
     }
+    store.delete(session.id);
+    syncLocalActiveCounts();
   }
 
   return {
@@ -184,67 +196,83 @@ export function createBrowserSessionService(deps: {
         }
       }
 
-      syncLocalActiveCounts();
       const persistProfile =
         config.persistProfilesEnabled && preferences.get(user.subjectId).persistProfile;
-      const worker = placement.pickForLaunch({
-        persistProfile,
-        subjectId: user.subjectId,
-        browser: normalized,
-      });
+      const excluded = new Set<string>();
+      let lastError: unknown;
 
-      const sessionId = randomToken();
-      const nekoAdminPassword = randomToken();
-      const nekoUserPassword = randomToken();
-      const now = Date.now();
-
-      try {
-        const created = await placement.createBrowser(worker, {
-          sessionId,
-          owner: user.username,
-          subjectId: user.subjectId,
-          browser: normalized,
-          nekoAdminPassword,
-          nekoUserPassword,
-          persistProfile,
-        });
-
-        // Local containers are reached over the Docker network; wait for readiness here.
-        // Remote workers already wait inside the agent before returning.
-        if (worker.kind === "local") {
-          const readyUrl =
-            created.proxyOrigin ||
-            (created.ipAddress ? `http://${created.ipAddress}:8080` : null);
-          if (!readyUrl) throw new Error("container_missing_host");
-          try {
-            await neko.waitUntilReady(readyUrl);
-          } catch (readyError) {
-            const logs = await placement.logs(worker.id, created.containerId).catch(() => "");
-            const detail = readyError instanceof Error ? readyError.message : String(readyError);
-            await placement.remove(worker.id, created.containerId).catch(() => undefined);
-            throw new Error(logs ? `${detail} | logs: ${logs}` : detail);
-          }
+      for (;;) {
+        syncLocalActiveCounts();
+        let worker;
+        try {
+          worker = placement.pickForLaunch({
+            persistProfile,
+            subjectId: user.subjectId,
+            browser: normalized,
+            excludeWorkerIds: excluded,
+          });
+        } catch (error) {
+          if (lastError !== undefined) throw lastError;
+          throw error;
         }
 
-        const record: BrowserSessionRecord = {
-          id: sessionId,
-          ownerUsername: user.username,
-          browser: normalized,
-          containerId: created.containerId,
-          containerName: created.containerName,
-          nekoAdminPassword,
-          nekoUserPassword,
-          webrtcPort: created.webrtcPort,
-          workerId: created.workerId,
-          createdAt: now,
-          lastActivityAt: now,
-        };
-        store.insert(record);
-        syncLocalActiveCounts();
-        return { session: record, reconnect: false };
-      } catch (error) {
-        syncLocalActiveCounts();
-        throw error;
+        const sessionId = randomToken();
+        const nekoAdminPassword = randomToken();
+        const nekoUserPassword = randomToken();
+        const now = Date.now();
+
+        try {
+          const created = await placement.createBrowser(worker, {
+            sessionId,
+            owner: user.username,
+            subjectId: user.subjectId,
+            browser: normalized,
+            nekoAdminPassword,
+            nekoUserPassword,
+            persistProfile,
+          });
+
+          // Local containers are reached over the Docker network; wait for readiness here.
+          // Remote workers already wait inside the agent before returning.
+          if (worker.kind === "local") {
+            const readyUrl =
+              created.proxyOrigin ||
+              (created.ipAddress ? `http://${created.ipAddress}:8080` : null);
+            if (!readyUrl) throw new Error("container_missing_host");
+            try {
+              await neko.waitUntilReady(readyUrl);
+            } catch (readyError) {
+              const logs = await placement.logs(worker.id, created.containerId).catch(() => "");
+              const detail = readyError instanceof Error ? readyError.message : String(readyError);
+              await placement.remove(worker.id, created.containerId).catch(() => undefined);
+              throw new Error(logs ? `${detail} | logs: ${logs}` : detail);
+            }
+          }
+
+          const record: BrowserSessionRecord = {
+            id: sessionId,
+            ownerUsername: user.username,
+            browser: normalized,
+            containerId: created.containerId,
+            containerName: created.containerName,
+            nekoAdminPassword,
+            nekoUserPassword,
+            webrtcPort: created.webrtcPort,
+            workerId: created.workerId,
+            createdAt: now,
+            lastActivityAt: now,
+          };
+          store.insert(record);
+          syncLocalActiveCounts();
+          return { session: record, reconnect: false };
+        } catch (error) {
+          syncLocalActiveCounts();
+          excluded.add(worker.id);
+          lastError = error;
+          if (persistProfile) {
+            placement.store.clearProfilePlacement(user.subjectId, normalized);
+          }
+        }
       }
     },
 

@@ -202,7 +202,24 @@ fi
 chmod 600 "${ENV_FILE}"
 echo "==> Wrote ${ENV_FILE}"
 
-# Host-network worker Quadlet (reachable WebRTC on Alma / Hyper-V).
+start_worker_podman_run() {
+  echo "==> Starting worker with podman run (host network)"
+  podman rm -f browser-isolation-worker >/dev/null 2>&1 || true
+  podman run -d \
+    --name browser-isolation-worker \
+    --restart=always \
+    --network=host \
+    --security-opt label=disable \
+    --authfile "${AUTH_FILE}" \
+    -v "${CONFIG_DIR}:/config:Z" \
+    -v /run/podman/podman.sock:/var/run/docker.sock \
+    -e DOCKER_SOCKET=/var/run/docker.sock \
+    -e RBI_ROLE=worker \
+    "${IMAGE}"
+}
+
+# Prefer Quadlet when the generator works; otherwise fall back to podman run.
+# Host network is required for WebRTC on Alma / Hyper-V.
 cat > "${UNIT_DIR}/browser-isolation-worker.container" <<EOF
 [Unit]
 Description=Browser Isolation worker agent
@@ -223,8 +240,8 @@ Environment=DOCKER_SOCKET=/var/run/docker.sock
 Environment=RBI_ROLE=worker
 Volume=${CONFIG_DIR}:/config:Z
 Volume=/run/podman/podman.sock:/var/run/docker.sock
+Network=host
 PodmanArgs=--init
-PodmanArgs=--network=host
 PodmanArgs=--security-opt=label=disable
 
 [Service]
@@ -236,12 +253,15 @@ WantedBy=multi-user.target
 EOF
 
 echo "==> Wrote Quadlet unit ${UNIT_DIR}/browser-isolation-worker.container"
-
 systemctl daemon-reload
 if systemctl cat browser-isolation-worker.service >/dev/null 2>&1; then
+  echo "==> Starting browser-isolation-worker.service"
   systemctl restart browser-isolation-worker.service
 else
-  die "browser-isolation-worker.service was not generated. Check: ls ${UNIT_DIR}"
+  echo "WARN: Quadlet did not generate browser-isolation-worker.service; using podman run"
+  rm -f "${UNIT_DIR}/browser-isolation-worker.container"
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  start_worker_podman_run
 fi
 
 if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
@@ -270,9 +290,8 @@ if [[ "${ok}" -eq 1 ]]; then
   echo
   echo "Re-run this installer anytime to rotate the worker token and refresh registration."
 else
-  echo "Service started but health check did not pass yet."
-  echo "Check: sudo systemctl status browser-isolation-worker.service"
-  echo "Logs:  sudo journalctl -u browser-isolation-worker.service -e"
+  echo "Worker enrolled but health check did not pass yet."
+  echo "Check: sudo podman ps -a; sudo podman logs browser-isolation-worker"
   echo "The worker is still enrolled as pending — authorize it after health recovers."
   exit 1
 fi

@@ -110,8 +110,20 @@ export function registerAdminWorkerRoutes(app: FastifyInstance, deps: AppDeps): 
     },
     async (request, reply) => {
       if (!requireAdmin(request, reply)) return;
+      const existing = workerStore.get(request.params.workerId);
+      if (!existing) return reply.code(404).send({ error: "not_found" });
+
+      // Tear down sessions while the worker is still considered online so remove can run.
+      if (!request.body.enabled) {
+        const stranded = deps.browsers.list().filter((session) => session.workerId === existing.id);
+        for (const session of stranded) {
+          await deps.browsers.destroyById(session.id).catch(() => undefined);
+        }
+      }
+
       const worker = workerStore.setEnabled(request.params.workerId, request.body.enabled);
       if (!worker) return reply.code(404).send({ error: "not_found" });
+
       audit.record({
         actorUsername: request.authUser!.username,
         action: worker.enabled ? "enable_worker" : "disable_worker",
@@ -142,6 +154,13 @@ export function registerAdminWorkerRoutes(app: FastifyInstance, deps: AppDeps): 
       }
       const workerId = request.params.workerId;
       const existing = workerStore.get(workerId);
+      if (!existing) return reply.code(404).send({ error: "not_found" });
+
+      const stranded = deps.browsers.list().filter((session) => session.workerId === workerId);
+      for (const session of stranded) {
+        await deps.browsers.destroyById(session.id).catch(() => undefined);
+      }
+
       const ok = workerStore.delete(workerId);
       if (!ok) return reply.code(404).send({ error: "not_found" });
       audit.record({
