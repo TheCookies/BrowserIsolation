@@ -1,9 +1,9 @@
 # Podman + GitHub Container Registry (GHCR)
 
 **Start here (super simple Alma deploy):** **[SETUP_GHCR_ALMA.md](SETUP_GHCR_ALMA.md)**  
-`podman login` → `podman pull` → pipe `/deploy/install.sh` into `bash`. No git clone on the server.
+`podman login` → `podman run --network=host` with `/config` + `/data` + socket mounts. The container creates `.env` on first boot.
 
-Run Browser Isolation with **Podman** instead of Docker, publish the app image from GitHub Actions to a **private** GHCR package, and auto-pull `:latest` on a remote host at boot.
+Run Browser Isolation with **Podman** instead of Docker, publish the app image from GitHub Actions to a **private** GHCR package, and recreate the container to pick up `:latest`.
 
 Your private GitHub **code** repo is not a container registry. Pulls use:
 
@@ -21,8 +21,9 @@ The orchestrator still talks to a Docker-compatible API (dockerode). On Podman t
 | --- | --- |
 | GitHub Actions workflow | Builds [`Dockerfile`](../Dockerfile) on every push to `main` and pushes `:latest` + short SHA tags |
 | GHCR package | Private image store for the remote host |
-| Remote host Quadlet unit | On boot: pull `:latest`, start orchestrator (local worker enabled) |
-| Extra hosts (later) | Same image, **worker** Quadlet only — no orchestrator |
+| Container entrypoint | Create-once `/config/.env`, then start orchestrator |
+| Host mounts | `/config`, `rbi-data`, `podman.sock`; `--network=host` |
+| Extra hosts (later) | Same image with `RBI_ROLE=worker` |
 
 ---
 
@@ -66,24 +67,23 @@ Fine-grained tokens can work if granted **read** access to the package (and the 
 
 ## Part B — Remote host (orchestrator + local worker)
 
-Use the image-baked installer. Full Alma checklist: [SETUP_GHCR_ALMA.md](SETUP_GHCR_ALMA.md).
+Full Alma checklist: [SETUP_GHCR_ALMA.md](SETUP_GHCR_ALMA.md).
 
 ```bash
-sudo dnf install -y podman          # or apt install podman
-sudo podman login ghcr.io -u YOUR_GITHUB_USERNAME
-sudo podman pull ghcr.io/thecookies/browserisolation:latest
-sudo podman run --rm --entrypoint cat \
-  ghcr.io/thecookies/browserisolation:latest \
-  /deploy/install.sh | sudo bash
+sudo dnf install -y podman
+sudo systemctl enable --now podman.socket
+echo "$GHCR_TOKEN" | sudo podman login ghcr.io -u YOUR_GITHUB_USERNAME \
+  --authfile /etc/containers/auth.json --password-stdin
+sudo mkdir -p /etc/browser-isolation
+sudo podman run -d --name browser-isolation --restart=always --network=host \
+  -v /etc/browser-isolation:/config:Z \
+  -v rbi-data:/data:Z \
+  -v /run/podman/podman.sock:/var/run/docker.sock \
+  ghcr.io/thecookies/browserisolation:latest
+sudo podman logs browser-isolation | grep "Portal admin password"
 ```
 
-That writes the env file, Quadlet units (`Pull=always`), opens firewalld ports when present, and starts `browser-isolation.service`.
-
-After a new GHCR publish:
-
-```bash
-sudo systemctl restart browser-isolation.service
-```
+After a new GHCR publish: pull `:latest`, `podman rm -f browser-isolation`, run the same `podman run` again (`.env` + data kept).
 
 ---
 

@@ -21,6 +21,7 @@ set -euo pipefail
 IMAGE="${IMAGE:-ghcr.io/thecookies/browserisolation:latest}"
 ENV_FILE="/etc/browser-isolation/browser-isolation.env"
 UNIT_DIR="/etc/containers/systemd"
+AUTH_FILE="${AUTH_FILE:-/etc/containers/auth.json}"
 FORCE_SETTINGS="${FORCE_SETTINGS:-0}"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -85,18 +86,32 @@ echo "==> Enabling podman.socket"
 systemctl enable --now podman.socket
 [[ -S /run/podman/podman.sock ]] || die "podman.socket did not create /run/podman/podman.sock"
 
-if ! podman pull "${IMAGE}" >/dev/null 2>&1; then
+# Systemd/Quadlet cannot see a normal interactive login (often stored under /run).
+# Always use a persistent auth file that the service can read.
+if [[ ! -f "${AUTH_FILE}" ]]; then
   echo
-  echo "Could not pull ${IMAGE}"
-  echo "Log in to GHCR first (private package), then re-run this installer:"
+  echo "Missing ${AUTH_FILE}"
+  echo "Log in once with a persistent auth file, then re-run:"
   echo
   echo "  read -s GHCR_TOKEN"
-  echo "  echo \"\$GHCR_TOKEN\" | sudo podman login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin"
+  echo "  echo \"\$GHCR_TOKEN\" | sudo podman login ghcr.io -u YOUR_GITHUB_USERNAME \\"
+  echo "    --authfile ${AUTH_FILE} --password-stdin"
   echo "  unset GHCR_TOKEN"
+  echo "  sudo chmod 600 ${AUTH_FILE}"
   echo
-  die "pull failed (login required or image not published yet)"
+  die "GHCR auth file required for private pulls under systemd"
 fi
-echo "==> Image pulled"
+
+if ! podman pull --authfile "${AUTH_FILE}" "${IMAGE}"; then
+  echo
+  echo "Could not pull ${IMAGE} with ${AUTH_FILE}"
+  echo "Re-login:"
+  echo "  echo \"\$GHCR_TOKEN\" | sudo podman login ghcr.io -u YOUR_GITHUB_USERNAME \\"
+  echo "    --authfile ${AUTH_FILE} --password-stdin"
+  echo
+  die "pull failed (bad token, SSO not authorized, or image not published)"
+fi
+echo "==> Image pulled (authfile=${AUTH_FILE})"
 
 mkdir -p /etc/browser-isolation "${UNIT_DIR}"
 
@@ -114,9 +129,11 @@ else
   echo "==> PUBLIC_IP=${PUBLIC_IP} (from eth0 IPv4, or override with PUBLIC_IP=...)"
 
   if [[ -z "${ADMIN_PASSWORD:-}" ]]; then
-    ADMIN_PASSWORD="$(ask_secret "Admin password (portal login): ")"
+    echo "Set the Browser Isolation web login password for user 'admin'."
+    echo "(This is NOT your Linux root password.)"
+    ADMIN_PASSWORD="$(ask_secret "Portal admin password: ")"
   fi
-  [[ -n "${ADMIN_PASSWORD}" ]] || die "admin password required (type it at the prompt, or set ADMIN_PASSWORD=...)"
+  [[ -n "${ADMIN_PASSWORD}" ]] || die "portal admin password required (or set ADMIN_PASSWORD=...)"
 
   umask 077
   cat > "${ENV_FILE}" <<EOF
@@ -181,6 +198,7 @@ Wants=network-online.target podman.socket
 [Container]
 Image=${IMAGE}
 Pull=always
+AuthFile=${AUTH_FILE}
 ContainerName=browser-isolation
 HostName=browser-isolation
 PublishPort=8080:8080
@@ -204,14 +222,19 @@ Restart=always
 TimeoutStartSec=300
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
 EOF
 
 echo "==> Wrote Quadlet units in ${UNIT_DIR}"
 
+# Quadlet units are generated — do not systemctl enable (Alma/RHEL rejects that).
+# WantedBy=multi-user.target makes them start on boot after daemon-reload.
 systemctl daemon-reload
-systemctl enable browser-isolation.service
-systemctl restart browser-isolation.service
+if systemctl cat browser-isolation.service >/dev/null 2>&1; then
+  systemctl restart browser-isolation.service
+else
+  die "browser-isolation.service was not generated. Check: ls ${UNIT_DIR} && journalctl -u podman* -xe"
+fi
 
 if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
   echo "==> Opening firewall ports"

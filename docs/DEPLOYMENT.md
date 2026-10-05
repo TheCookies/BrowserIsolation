@@ -2,7 +2,7 @@
 
 How to run Browser Isolation in production (or anything beyond a laptop).
 
-**Production recommendation:** Podman + GHCR image + systemd Quadlet (pull `:latest` on boot).
+**Production recommendation:** Podman + GHCR image + self-bootstrapping `podman run --network=host` (host-mounted `/config/.env`).
 
 - Exact Alma Linux checklist: **[SETUP_GHCR_ALMA.md](SETUP_GHCR_ALMA.md)**
 - Background / reference: **[PODMAN.md](PODMAN.md)**
@@ -29,9 +29,9 @@ See [WORKERS.md](WORKERS.md).
 ## Podman + GHCR (recommended)
 
 1. Push to `main` so Actions publishes `ghcr.io/thecookies/browserisolation:latest`.  
-2. On the host: enable `podman.socket`, `podman login ghcr.io`, install units from [`deploy/podman/`](../deploy/podman/).  
+2. On the host: enable `podman.socket`, `podman login --authfile /etc/containers/auth.json`, then `podman run --network=host` with `/config`, data, and socket mounts.  
 
-Full steps (token, Quadlet, extra workers): [PODMAN.md](PODMAN.md).
+Full steps: [SETUP_GHCR_ALMA.md](SETUP_GHCR_ALMA.md) · [PODMAN.md](PODMAN.md).
 
 ---
 
@@ -177,10 +177,12 @@ Details: [USER_IDENTITY.md](USER_IDENTITY.md).
 
 ## Upgrades
 
-**Quadlet / GHCR host**
+**GHCR host (`podman run`)**
 
 ```bash
-sudo systemctl restart browser-isolation.service   # Pull=always fetches :latest
+sudo podman pull --authfile /etc/containers/auth.json ghcr.io/thecookies/browserisolation:latest
+sudo podman rm -f browser-isolation
+# re-run the same podman run (or sudo bash deploy/podman/run.sh --no-pull)
 ```
 
 **Compose from a git checkout**

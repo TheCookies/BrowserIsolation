@@ -1,11 +1,14 @@
 # Super-simple deploy: GHCR + Alma Linux
 
-You only need two things:
+The container is self-bootstrapping:
 
-1. **GitHub** builds the image when you push to `main`
-2. **Alma** logs into GHCR once, then runs a one-shot installer
+- Mount host `/etc/browser-isolation` → `/config`
+- On first start, if `/config/.env` is missing, the container **creates it** (`PUBLIC_IP` from host `eth0`, random admin password printed in logs)
+- If `.env` already exists, it is **never overwritten**
+- SQLite lives on volume `rbi-data`
+- Podman socket is mounted so browser containers can be created
 
-No git clone on the server. No hand-copying Quadlet files.
+Use `--network=host` so eth0/WebRTC ports are the real host network.
 
 ---
 
@@ -13,168 +16,147 @@ No git clone on the server. No hand-copying Quadlet files.
 
 ## 1. Push this repo to `main`
 
-From your Windows PC, commit and push the deploy files if you have not already.
-
 ## 2. Allow Actions to write packages
 
 1. https://github.com/TheCookies/BrowserIsolation → **Settings**
 2. **Actions** → **General** → **Workflow permissions**
-3. Choose **Read and write permissions** → **Save**
+3. **Read and write permissions** → **Save**
 
-## 3. Wait for the green build
+## 3. Wait for green **Publish image**
 
-1. **Actions** → **Publish image**
-2. Wait until it is green  
-   (or **Run workflow** on `main` if nothing ran)
+**Actions** → **Publish image** → green (or **Run workflow** on `main`)
 
 ## 4. Create a pull token
 
 1. https://github.com/settings/tokens → **Generate new token (classic)**
-2. Check **`read:packages`** only
-3. Generate → **copy** the `ghp_...` token
+2. Check **`read:packages`**
+3. Copy the `ghp_...` token
 
-Done on GitHub. Every future push to `main` updates  
-`ghcr.io/thecookies/browserisolation:latest`.
-
----
-
-# Part 2 — Alma Linux (the whole server install)
-
-SSH into Alma and run this. That is the entire deploy.
-
-```bash
-# 0) install podman if needed
-sudo dnf install -y podman
-
-# 1) login to the private image registry (paste token when prompted)
-sudo podman login ghcr.io -u YOUR_GITHUB_USERNAME
-
-# 2) pull the image
-sudo podman pull ghcr.io/thecookies/browserisolation:latest
-
-# 3) run the installer baked into the image
-sudo podman run --rm --entrypoint cat \
-  ghcr.io/thecookies/browserisolation:latest \
-  /deploy/install.sh | sudo bash
-```
-
-The installer:
-
-- Sets `PUBLIC_IP` from the current **eth0** IPv4 address automatically
-- Asks once for the **admin password** (type it; the prompt reads from your keyboard even when the script is piped)
-
-It then:
-
-- enables `podman.socket`
-- writes `/etc/browser-isolation/browser-isolation.env`
-- installs systemd auto-start with **`Pull=always`** (pulls `:latest` on every boot/restart)
-- opens firewall ports `8080` and `52000-52099` if `firewalld` is running
-- starts the service and checks `/api/health`
-
-Open:
+Image name:
 
 ```text
-http://YOUR_IP:8080
-```
-
-Login: `admin` / (password you typed)
-
----
-
-## Non-interactive (optional)
-
-```bash
-sudo podman login ghcr.io -u YOUR_GITHUB_USERNAME
-sudo podman pull ghcr.io/thecookies/browserisolation:latest
-
-sudo podman run --rm --entrypoint cat \
-  ghcr.io/thecookies/browserisolation:latest \
-  /deploy/install.sh | sudo env \
-  PUBLIC_IP=1.2.3.4 \
-  ADMIN_PASSWORD='choose-a-strong-password' \
-  bash
+ghcr.io/thecookies/browserisolation:latest
 ```
 
 ---
 
-## After you ship a new build
-
-On your PC: push to `main` → wait for Actions green.
-
-On Alma (either is fine):
+# Part 2 — Alma Linux (entire install)
 
 ```bash
-# Fastest — pulls :latest and restarts; never touches your settings
-sudo systemctl restart browser-isolation.service
+sudo dnf install -y podman
+sudo systemctl enable --now podman.socket
 
-# Or re-run the installer — it keeps /etc/browser-isolation/browser-isolation.env
-sudo podman run --rm --entrypoint cat \
-  ghcr.io/thecookies/browserisolation:latest \
-  /deploy/install.sh | sudo bash
+# Persistent GHCR login (needed for private pulls)
+mkdir -p /etc/containers /etc/browser-isolation
+read -s GHCR_TOKEN
+echo "$GHCR_TOKEN" | sudo podman login ghcr.io -u YOUR_GITHUB_USERNAME \
+  --authfile /etc/containers/auth.json --password-stdin
+unset GHCR_TOKEN
+sudo chmod 600 /etc/containers/auth.json
+
+# Pull + run (self-creates /etc/browser-isolation/.env on first boot)
+sudo podman pull --authfile /etc/containers/auth.json \
+  ghcr.io/thecookies/browserisolation:latest
+
+sudo podman run -d \
+  --name browser-isolation \
+  --restart=always \
+  --network=host \
+  -v /etc/browser-isolation:/config:Z \
+  -v rbi-data:/data:Z \
+  -v /run/podman/podman.sock:/var/run/docker.sock \
+  -e DOCKER_SOCKET=/var/run/docker.sock \
+  ghcr.io/thecookies/browserisolation:latest
 ```
 
-Settings are only written on **first** install. To force rewrite them: `FORCE_SETTINGS=1`.
-SQLite data stays on the `rbi-data` volume either way.
+Or use the helper from a checkout / scp:
+
+```bash
+sudo bash deploy/podman/run.sh
+```
+
+### First login password
+
+```bash
+sudo podman logs browser-isolation 2>&1 | grep -A2 "Portal admin password"
+```
+
+Open `http://YOUR_ETH0_IP:8080` — user `admin`, password from the logs.
+
+Optional firewall:
+
+```bash
+sudo firewall-cmd --permanent --add-port=8080/tcp
+sudo firewall-cmd --permanent --add-port=52000-52099/tcp
+sudo firewall-cmd --permanent --add-port=52000-52099/udp
+sudo firewall-cmd --reload
+```
 
 ---
 
-## Useful commands
+# Updates (keeps settings + database)
 
 ```bash
-sudo systemctl status browser-isolation.service
+sudo podman pull --authfile /etc/containers/auth.json \
+  ghcr.io/thecookies/browserisolation:latest
+sudo podman rm -f browser-isolation
+sudo bash /path/to/run.sh --no-pull
+```
+
+Or the same `podman run ...` command again after `podman rm -f browser-isolation`.
+
+`/etc/browser-isolation/.env` and volume `rbi-data` stay.
+
+To force a brand-new `.env` (new password / IP):
+
+```bash
+sudo rm /etc/browser-isolation/.env
+sudo podman rm -f browser-isolation
+# run the container again
+```
+
+---
+
+# Useful commands
+
+```bash
 sudo podman ps
 sudo podman logs -f browser-isolation
-sudo journalctl -u browser-isolation.service -f
 curl -sS http://127.0.0.1:8080/api/health
+sudo nano /etc/browser-isolation/.env   # edit settings, then:
+sudo podman restart browser-isolation
 ```
 
 ---
 
-## If pull says denied
+# Troubleshooting
 
-- Token must include `read:packages`
-- Login with `sudo` (rootful Podman stores its own credentials)
-- First **Publish image** Action must have succeeded
-- Org SSO: authorize the token for `TheCookies` if prompted
+| Problem | Fix |
+| --- | --- |
+| pull denied | `read:packages` token + `--authfile /etc/containers/auth.json` |
+| no admin password in logs | `.env` already existed; see `/etc/browser-isolation/.env` (`AUTH_USERS=`) |
+| browsers fail to launch | `podman.socket` running? sock mounted? |
+| wrong PUBLIC_IP | edit `/etc/browser-isolation/.env` or delete `.env` and recreate container |
+| old image without entrypoint | wait for green **Publish image**, then `podman pull` again |
 
-## If `cat: /deploy/install.sh: No such file or directory`
+---
 
-Your Alma box has an **old** image (built before the installer was baked in), or Actions has not published the new build yet.
-
-1. On GitHub → **Actions** → **Publish image** → confirm the newest run is **green**
-2. On Alma, force a fresh pull and check the folder exists:
+# Extra worker hosts later
 
 ```bash
-sudo podman pull ghcr.io/thecookies/browserisolation:latest
-sudo podman run --rm --entrypoint ls \
-  ghcr.io/thecookies/browserisolation:latest /deploy
+sudo podman run -d \
+  --name browser-isolation-worker \
+  --restart=always \
+  --network=host \
+  -v /etc/browser-isolation:/config:Z \
+  -v /run/podman/podman.sock:/var/run/docker.sock \
+  -e DOCKER_SOCKET=/var/run/docker.sock \
+  -e RBI_ROLE=worker \
+  ghcr.io/thecookies/browserisolation:latest
 ```
 
-You should see `install.sh`. Then re-run the installer pipe.
-
-**Works right now without waiting for a new image** — copy just the installer from your PC:
-
-```powershell
-# On Windows (from the repo root)
-scp deploy\podman\install.sh root@ALMA_IP:/tmp/install-rbi.sh
-```
-
-```bash
-# On Alma
-sudo bash /tmp/install-rbi.sh
-```
+Put `WORKER_ID`, `WORKER_TOKEN`, `PUBLIC_IP`, etc. in that host’s `/config/.env`, then register the worker in Admin. See [WORKERS.md](WORKERS.md).
 
 ---
 
-## Extra worker hosts later
-
-Still simple, but a different unit. See [PODMAN.md](PODMAN.md) Part C, or say if you want a matching `install-worker.sh`.
-
----
-
-## What you do NOT need on Alma
-
-- Cloning this git repo
-- Copying Quadlet files by hand
-- Docker
-- Node.js / npm
+Related: [PODMAN.md](PODMAN.md), [DEPLOYMENT.md](DEPLOYMENT.md).

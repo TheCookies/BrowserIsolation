@@ -33,4 +33,4 @@ Restart=always
 TimeoutStartSec=300
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target

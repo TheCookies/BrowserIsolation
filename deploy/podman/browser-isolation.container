@@ -6,6 +6,8 @@ Wants=network-online.target podman.socket
 [Container]
 Image=ghcr.io/thecookies/browserisolation:latest
 Pull=always
+# Persistent login file (NOT the default /run/... auth.json)
+AuthFile=/etc/containers/auth.json
 ContainerName=browser-isolation
 HostName=browser-isolation
 
@@ -37,4 +39,4 @@ Restart=always
 TimeoutStartSec=300
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
