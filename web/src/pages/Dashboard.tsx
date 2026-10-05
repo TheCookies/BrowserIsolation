@@ -99,6 +99,7 @@ export function DashboardPage({
         ...me,
         persistProfile: prefs.persistProfile,
         persistProfilesEnabled: prefs.persistProfilesEnabled,
+        darkMode: prefs.darkMode,
       });
     } catch {
       setError("Unable to update persistence setting.");
@@ -114,7 +115,7 @@ export function DashboardPage({
     options?.find((option) => option.id === browser)?.title ?? browser ?? "browser";
 
   return (
-    <Shell me={me} onLogout={onLogout}>
+    <Shell me={me} onLogout={onLogout} onMe={onMe}>
       <section className="dash-hero">
         <div>
           <p className="panel-kicker">Workspace</p>

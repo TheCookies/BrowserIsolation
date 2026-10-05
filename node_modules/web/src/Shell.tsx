@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
-import { ApiError, changePassword, type Me } from "./api";
+import { ApiError, changePassword, setDarkMode, type Me } from "./api";
 
 function passwordChangeError(err: unknown): string {
   if (!(err instanceof ApiError)) return "Unable to change password. Try again.";
@@ -25,15 +25,20 @@ function passwordChangeError(err: unknown): string {
 export function Shell({
   me,
   onLogout,
+  onMe,
   children,
 }: {
   me: Me;
   onLogout: () => Promise<void>;
+  onMe: (me: Me) => void;
   children: ReactNode;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [themePending, setThemePending] = useState(false);
+  const [themeError, setThemeError] = useState<string | null>(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [passwordPending, setPasswordPending] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
@@ -41,7 +46,8 @@ export function Shell({
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const titleId = useId();
+  const passwordTitleId = useId();
+  const profileTitleId = useId();
   const menuId = useId();
   const menuRef = useRef<HTMLDivElement>(null);
   const currentPasswordRef = useRef<HTMLInputElement>(null);
@@ -79,6 +85,27 @@ export function Shell({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [passwordOpen, passwordPending]);
 
+  useEffect(() => {
+    if (!profileOpen) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !themePending) closeProfileModal();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [profileOpen, themePending]);
+
+  function openProfileModal() {
+    setMenuOpen(false);
+    setThemeError(null);
+    setProfileOpen(true);
+  }
+
+  function closeProfileModal() {
+    if (themePending) return;
+    setProfileOpen(false);
+    setThemeError(null);
+  }
+
   function openPasswordModal() {
     setMenuOpen(false);
     setPasswordOpen(true);
@@ -109,6 +136,21 @@ export function Shell({
     } catch {
       setError("Unable to log out. Try again.");
       setPending(false);
+    }
+  }
+
+  async function onToggleDarkMode() {
+    if (themePending) return;
+    const next = !me.darkMode;
+    setThemePending(true);
+    setThemeError(null);
+    try {
+      const prefs = await setDarkMode(next, me.csrfToken);
+      onMe({ ...me, darkMode: prefs.darkMode });
+    } catch {
+      setThemeError("Unable to update appearance. Try again.");
+    } finally {
+      setThemePending(false);
     }
   }
 
@@ -189,9 +231,13 @@ export function Shell({
                   {me.role === "admin" ? "Administrator" : "User"}
                 </span>
               </div>
-              <button type="button" className="account-menu-item" role="menuitem" disabled>
+              <button
+                type="button"
+                className="account-menu-item"
+                role="menuitem"
+                onClick={openProfileModal}
+              >
                 Profile
-                <span className="account-menu-soon">Soon</span>
               </button>
               {me.canChangePassword ? (
                 <button
@@ -223,18 +269,89 @@ export function Shell({
       ) : null}
       <main className="content">{children}</main>
 
+      {profileOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={closeProfileModal}>
+          <div
+            className="modal-panel profile-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={profileTitleId}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="panel-header">
+              <div>
+                <h2 id={profileTitleId}>Profile</h2>
+                <p className="hint">Account details and personal appearance preferences.</p>
+              </div>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={closeProfileModal}
+                disabled={themePending}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="profile-modal-body">
+              <div className="profile-identity">
+                <div className="profile-identity-row">
+                  <span className="profile-label">Username</span>
+                  <strong>{me.username}</strong>
+                </div>
+                <div className="profile-identity-row">
+                  <span className="profile-label">Role</span>
+                  <strong>{me.role === "admin" ? "Administrator" : "User"}</strong>
+                </div>
+              </div>
+
+              <label className={`profile-theme-toggle${me.darkMode ? " on" : ""}`}>
+                <span className="profile-theme-copy">
+                  <strong>Dark mode</strong>
+                  <span className="hint">Use a darker palette for the portal UI.</span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={me.darkMode}
+                  disabled={themePending}
+                  onChange={() => void onToggleDarkMode()}
+                />
+                <span className="profile-theme-switch" aria-hidden="true" />
+              </label>
+              {themeError ? (
+                <p className="alert" role="alert">
+                  {themeError}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="actions profile-modal-actions">
+              <button
+                type="button"
+                className="button-primary"
+                onClick={closeProfileModal}
+                disabled={themePending}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {passwordOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={closePasswordModal}>
           <div
             className="modal-panel password-modal"
             role="dialog"
             aria-modal="true"
-            aria-labelledby={titleId}
+            aria-labelledby={passwordTitleId}
             onClick={(event) => event.stopPropagation()}
           >
             <div className="panel-header">
               <div>
-                <h2 id={titleId}>Change password</h2>
+                <h2 id={passwordTitleId}>Change password</h2>
                 <p className="hint">Update the password for your local portal account.</p>
               </div>
               <button

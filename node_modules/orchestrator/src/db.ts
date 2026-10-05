@@ -86,6 +86,7 @@ export function openDatabase(filePath: string): Database.Database {
     CREATE TABLE IF NOT EXISTS user_preferences (
       subject_id TEXT PRIMARY KEY,
       persist_profile INTEGER NOT NULL DEFAULT 0 CHECK (persist_profile IN (0, 1)),
+      dark_mode INTEGER NOT NULL DEFAULT 0 CHECK (dark_mode IN (0, 1)),
       updated_at INTEGER NOT NULL
     );
 
@@ -164,7 +165,15 @@ export function openDatabase(filePath: string): Database.Database {
   migrateBrowserSessionWorkers(db);
   migrateAuditEventsWidenActions(db);
   migrateAuditEventsFilterIndexes(db);
+  migrateUserPreferencesDarkMode(db);
   return db;
+}
+
+function migrateUserPreferencesDarkMode(db: Database.Database): void {
+  const cols = db.prepare(`PRAGMA table_info(user_preferences)`).all() as Array<{ name: string }>;
+  if (!cols.some((col) => col.name === "dark_mode")) {
+    db.exec(`ALTER TABLE user_preferences ADD COLUMN dark_mode INTEGER NOT NULL DEFAULT 0`);
+  }
 }
 
 function migrateAuditEventsFilterIndexes(db: Database.Database): void {

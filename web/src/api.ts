@@ -11,6 +11,8 @@ export type Me = {
   logoUrl: string | null;
   persistProfilesEnabled: boolean;
   persistProfile: boolean;
+  /** Per-user portal appearance preference. */
+  darkMode: boolean;
   /** True for local (password) accounts; false for SAML/SSO users. */
   canChangePassword: boolean;
   csrfToken: string;
@@ -19,6 +21,7 @@ export type Me = {
 export type UserPreferences = {
   persistProfilesEnabled: boolean;
   persistProfile: boolean;
+  darkMode: boolean;
   subjectId: string;
 };
 
@@ -638,16 +641,27 @@ export function getPreferences(): Promise<UserPreferences> {
   return request("/api/preferences");
 }
 
-export function setPersistProfile(
-  persistProfile: boolean,
+export function updatePreferences(
+  patch: { persistProfile?: boolean; darkMode?: boolean },
   csrfToken: string,
 ): Promise<UserPreferences> {
   return request(
     "/api/preferences",
     {
       method: "PUT",
-      body: JSON.stringify({ persistProfile }),
+      body: JSON.stringify(patch),
     },
     csrfToken,
   );
+}
+
+export function setPersistProfile(
+  persistProfile: boolean,
+  csrfToken: string,
+): Promise<UserPreferences> {
+  return updatePreferences({ persistProfile }, csrfToken);
+}
+
+export function setDarkMode(darkMode: boolean, csrfToken: string): Promise<UserPreferences> {
+  return updatePreferences({ darkMode }, csrfToken);
 }

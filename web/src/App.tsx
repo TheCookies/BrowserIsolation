@@ -35,6 +35,12 @@ export function App() {
     document.title = me.siteName;
   }, [me?.siteName]);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    if (me?.darkMode) root.setAttribute("data-theme", "dark");
+    else root.removeAttribute("data-theme");
+  }, [me?.darkMode]);
+
   async function onLogout() {
     if (!me) return;
     await logout(me.csrfToken);

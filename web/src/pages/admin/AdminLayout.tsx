@@ -24,7 +24,7 @@ export function AdminLayout({
 }) {
   const context: AdminOutletContext = { me, onLogout, onMe };
   return (
-    <Shell me={me} onLogout={onLogout}>
+    <Shell me={me} onLogout={onLogout} onMe={onMe}>
       <nav className="admin-subnav" aria-label="Admin sections">
         {SUBNAV.map((item) => (
           <NavLink

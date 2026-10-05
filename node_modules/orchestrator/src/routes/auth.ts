@@ -112,6 +112,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): void {
         logoUrl: branding.getLogoInfo()?.url ?? null,
         persistProfilesEnabled: config.persistProfilesEnabled,
         persistProfile: config.persistProfilesEnabled ? prefs.persistProfile : false,
+        darkMode: prefs.darkMode,
         canChangePassword: canChangePassword(user.subjectId, localUsers, user.username),
         csrfToken: session.csrfToken,
       };
@@ -226,6 +227,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): void {
       logoUrl: branding.getLogoInfo()?.url ?? null,
       persistProfilesEnabled: config.persistProfilesEnabled,
       persistProfile: config.persistProfilesEnabled ? prefs.persistProfile : false,
+      darkMode: prefs.darkMode,
       canChangePassword: canChangePassword(
         request.authUser.subjectId,
         localUsers,
