@@ -91,7 +91,7 @@ Then open **Admin → Workers** and click **Authorize**. Use **Deauthorize** to 
 | Online / Offline | Authorized; heartbeat within / outside ~45s |
 | Deauthorized | Previously seen, then disabled |
 
-Re-running `install-worker.sh` refreshes URL/IP, rewrites the shared agent token into `.env`, and the worker **auto-enrolls again on startup**. Authorize state is preserved when the worker id matches.
+Re-running `install-worker.sh` refreshes URL/IP and the worker **auto-enrolls again on startup**. Prior authorization is remembered (even if the worker row was removed), so you should not need to click Authorize again unless an admin previously Deauthorized that worker id.
 
 API: `POST /api/workers/enroll` with `Authorization: Bearer <WORKER_ENROLL_TOKEN>`.
 

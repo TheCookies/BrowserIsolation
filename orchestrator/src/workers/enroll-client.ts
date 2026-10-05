@@ -6,6 +6,8 @@ export type WorkerEnrollResult = {
   baseUrl: string;
   publicIp: string;
   enabled: boolean;
+  online?: boolean;
+  probeError?: string | null;
 };
 
 export async function enrollWithOrchestrator(input: {

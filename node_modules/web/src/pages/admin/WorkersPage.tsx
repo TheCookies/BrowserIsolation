@@ -116,7 +116,16 @@ export function WorkersPage() {
     setWorkersMessage(null);
     setError(null);
     try {
-      await setAdminWorkerEnabled(worker.id, enabled, me.csrfToken);
+      const result = await setAdminWorkerEnabled(worker.id, enabled, me.csrfToken);
+      if (enabled && result.probeError) {
+        setWorkersMessage(
+          `Authorized ${worker.id}, but it is still unreachable (${result.probeError}). Check worker agent / token / network.`,
+        );
+      } else if (enabled && result.worker && !result.worker.online) {
+        setWorkersMessage(`Authorized ${worker.id}, but it is offline. Check worker health.`);
+      } else {
+        setWorkersMessage(enabled ? `Authorized ${worker.id}.` : `Deauthorized ${worker.id}.`);
+      }
       await loadWorkers();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.code : "Unable to update worker.");

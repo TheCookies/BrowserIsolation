@@ -32,6 +32,8 @@ export type WorkerPlacement = {
   }): WorkerRecord;
   /** Ping enabled remote workers and refresh online heartbeats. */
   refreshOnlineWorkers(): Promise<number>;
+  /** Probe one worker; updates lastSeenAt on success. Returns error message on failure. */
+  probeWorker(workerId: string): Promise<{ ok: true } | { ok: false; error: string }>;
   createBrowser(
     worker: WorkerRecord,
     request: Omit<WorkerCreateBrowserRequest, "settings">,
@@ -170,6 +172,34 @@ export function createWorkerPlacement(deps: {
         }
       }
       return online;
+    },
+
+    async probeWorker(workerId) {
+      const worker = store.get(workerId);
+      if (!worker) return { ok: false, error: "not_found" };
+      if (worker.kind === "local") {
+        store.touchStatus(worker.id, {
+          lastSeenAt: Date.now(),
+          activeSessions: worker.activeSessions,
+          publicIp: config.publicIp,
+        });
+        return { ok: true };
+      }
+      try {
+        const status = await remote(worker).status();
+        store.touchStatus(worker.id, {
+          lastSeenAt: Date.now(),
+          activeSessions: status.activeSessions,
+          publicIp: status.publicIp || worker.publicIp,
+        });
+        return { ok: true };
+      } catch (error) {
+        store.markUnseen(worker.id);
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : "unreachable",
+        };
+      }
     },
 
     async createBrowser(worker, request) {

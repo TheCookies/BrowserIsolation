@@ -127,22 +127,34 @@ export function registerAdminWorkerRoutes(app: FastifyInstance, deps: AppDeps): 
       const worker = workerStore.setEnabled(request.params.workerId, request.body.enabled);
       if (!worker) return reply.code(404).send({ error: "not_found" });
 
+      let probeError: string | null = null;
+      if (worker.enabled && worker.kind === "remote") {
+        const probed = await deps.placement.probeWorker(worker.id);
+        if (!probed.ok) probeError = probed.error;
+      } else if (worker.enabled && worker.kind === "local") {
+        await deps.placement.probeWorker(worker.id);
+      }
+
+      const latest = workerStore.get(worker.id) ?? worker;
+
       audit.record({
         actorUsername: request.authUser!.username,
-        action: worker.enabled ? "enable_worker" : "disable_worker",
-        detail: `${worker.enabled ? "enabled" : "disabled"} worker ${worker.id}`,
+        action: latest.enabled ? "enable_worker" : "disable_worker",
+        detail: `${latest.enabled ? "enabled" : "disabled"} worker ${latest.id}` +
+          (probeError ? ` (probe failed: ${probeError})` : ""),
       });
       return {
         ok: true,
+        probeError,
         worker: {
-          id: worker.id,
-          baseUrl: worker.baseUrl,
-          publicIp: worker.kind === "local" ? config.publicIp : worker.publicIp,
-          enabled: worker.enabled,
-          kind: worker.kind,
-          online: isWorkerOnline(worker),
-          lastSeenAt: worker.lastSeenAt ? new Date(worker.lastSeenAt).toISOString() : null,
-          activeSessions: worker.activeSessions,
+          id: latest.id,
+          baseUrl: latest.baseUrl,
+          publicIp: latest.kind === "local" ? config.publicIp : latest.publicIp,
+          enabled: latest.enabled,
+          kind: latest.kind,
+          online: isWorkerOnline(latest),
+          lastSeenAt: latest.lastSeenAt ? new Date(latest.lastSeenAt).toISOString() : null,
+          activeSessions: latest.activeSessions,
         },
       };
     },

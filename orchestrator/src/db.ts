@@ -141,6 +141,12 @@ export function openDatabase(filePath: string): Database.Database {
       PRIMARY KEY (subject_id, browser)
     );
 
+    CREATE TABLE IF NOT EXISTS worker_grants (
+      id TEXT PRIMARY KEY,
+      authorized INTEGER NOT NULL DEFAULT 1 CHECK (authorized IN (0, 1)),
+      updated_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS audit_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       actor_username TEXT NOT NULL,
@@ -166,7 +172,25 @@ export function openDatabase(filePath: string): Database.Database {
   migrateAuditEventsWidenActions(db);
   migrateAuditEventsFilterIndexes(db);
   migrateUserPreferencesDarkMode(db);
+  migrateWorkerGrants(db);
   return db;
+}
+
+function migrateWorkerGrants(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS worker_grants (
+      id TEXT PRIMARY KEY,
+      authorized INTEGER NOT NULL DEFAULT 1 CHECK (authorized IN (0, 1)),
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  // Seed grants from currently enabled remote workers so reinstall keeps authorization.
+  db.exec(`
+    INSERT OR IGNORE INTO worker_grants (id, authorized, updated_at)
+    SELECT id, enabled, CAST(strftime('%s','now') AS INTEGER) * 1000
+    FROM workers
+    WHERE kind = 'remote';
+  `);
 }
 
 function migrateUserPreferencesDarkMode(db: Database.Database): void {

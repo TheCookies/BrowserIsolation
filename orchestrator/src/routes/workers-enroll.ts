@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../app";
 import { safeEqual } from "../security";
+import { isWorkerOnline } from "../workers/scheduler";
 
 type EnrollBody = {
   workerId?: string;
@@ -28,7 +29,7 @@ function defaultWorkerId(): string {
 }
 
 export function registerWorkerEnrollRoutes(app: FastifyInstance, deps: AppDeps): void {
-  const { config, workerStore, audit } = deps;
+  const { config, workerStore, audit, placement } = deps;
 
   app.post<{ Body: EnrollBody }>(
     "/api/workers/enroll",
@@ -83,10 +84,11 @@ export function registerWorkerEnrollRoutes(app: FastifyInstance, deps: AppDeps):
       }
 
       // Shared agent secret: same WORKER_ENROLL_TOKEN on orchestrator + every worker.
-      // Avoids per-enroll random tokens that desync when .env and SQLite drift apart.
       const token = expected;
-      // Always require a fresh successful poll after enroll/re-enroll.
-      const enabled = existing ? existing.enabled : false;
+      const priorGrant = workerStore.getGrant(id);
+      // Preserve live enabled state, else prior grant (survives delete), else auto-enable.
+      const enabled = existing ? existing.enabled : priorGrant !== null ? priorGrant : true;
+
       const worker = workerStore.upsert({
         id,
         baseUrl,
@@ -97,26 +99,46 @@ export function registerWorkerEnrollRoutes(app: FastifyInstance, deps: AppDeps):
         lastSeenAt: null,
         activeSessions: existing?.activeSessions ?? 0,
       });
+      workerStore.setGrant(worker.id, worker.enabled);
+
+      let probeError: string | null = null;
+      if (worker.enabled) {
+        // Agent may not be listening yet during install; probe is best-effort.
+        const probed = await placement.probeWorker(worker.id);
+        if (!probed.ok) probeError = probed.error;
+      }
+
+      const latest = workerStore.get(worker.id) ?? worker;
 
       audit.record({
         actorUsername: "system",
         action: "create_worker",
         detail: existing
-          ? `worker re-enrolled (${id}, enabled=${enabled})`
-          : `worker enrolled pending authorize (${id})`,
+          ? `worker re-enrolled (${id}, enabled=${latest.enabled})`
+          : latest.enabled
+            ? `worker enrolled and authorized (${id})`
+            : `worker enrolled pending authorize (${id})`,
       });
 
       request.log.info(
-        { workerId: worker.id, enabled: worker.enabled, reenroll: Boolean(existing) },
+        {
+          workerId: latest.id,
+          enabled: latest.enabled,
+          online: isWorkerOnline(latest),
+          reenroll: Boolean(existing),
+          probeError,
+        },
         "worker enrolled",
       );
 
       return {
-        id: worker.id,
+        id: latest.id,
         token,
-        baseUrl: worker.baseUrl,
-        publicIp: worker.publicIp,
-        enabled: worker.enabled,
+        baseUrl: latest.baseUrl,
+        publicIp: latest.publicIp,
+        enabled: latest.enabled,
+        online: isWorkerOnline(latest),
+        probeError,
       };
     },
   );

@@ -259,7 +259,7 @@ export function setAdminWorkerEnabled(
   workerId: string,
   enabled: boolean,
   csrfToken: string,
-): Promise<{ ok: boolean; worker: AdminWorker }> {
+): Promise<{ ok: boolean; worker: AdminWorker; probeError?: string | null }> {
   return request(
     `/api/admin/workers/${encodeURIComponent(workerId)}`,
     { method: "PATCH", body: JSON.stringify({ enabled }) },

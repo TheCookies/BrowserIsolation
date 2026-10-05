@@ -17,6 +17,10 @@ function uniqueNonEmpty(values: Array<string | undefined>): string[] {
   return out;
 }
 
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function main(): Promise<void> {
   const baseDir = path.resolve(__dirname, "../..");
   loadEnvFile(path.join(baseDir, ".env"));
@@ -48,41 +52,6 @@ async function main(): Promise<void> {
   const baseUrl =
     process.env.WORKER_BASE_URL?.trim().replace(/\/+$/, "") ||
     `http://${publicIp}:${port}`;
-
-  if (orchestratorUrl && enrollToken) {
-    try {
-      const enrolled = await enrollWithOrchestrator({
-        orchestratorBaseUrl: orchestratorUrl,
-        enrollToken,
-        workerId,
-        baseUrl,
-        publicIp,
-      });
-      console.log(
-        JSON.stringify({
-          msg: "worker enrolled with orchestrator",
-          workerId: enrolled.id,
-          enabled: enrolled.enabled,
-          orchestratorUrl,
-        }),
-      );
-    } catch (error) {
-      // Still listen — installer may have enrolled already; admin can authorize later.
-      console.error(
-        JSON.stringify({
-          msg: "worker enroll failed; continuing with local agent token",
-          error: error instanceof Error ? error.message : String(error),
-          orchestratorUrl,
-        }),
-      );
-    }
-  } else {
-    console.log(
-      JSON.stringify({
-        msg: "skipping auto-enroll (set ORCHESTRATOR_URL and WORKER_ENROLL_TOKEN to enable)",
-      }),
-    );
-  }
 
   const runtime = createDockerRuntime(config);
   await runtime.ensureNetwork();
@@ -127,6 +96,7 @@ async function main(): Promise<void> {
       });
   });
 
+  // Listen first so orchestrator probes during enroll can succeed.
   await app.listen({ port, host: config.host });
   app.log.info(
     {
@@ -138,6 +108,57 @@ async function main(): Promise<void> {
     },
     "worker agent listening",
   );
+
+  if (orchestratorUrl && enrollToken) {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      try {
+        const enrolled = await enrollWithOrchestrator({
+          orchestratorBaseUrl: orchestratorUrl,
+          enrollToken,
+          workerId,
+          baseUrl,
+          publicIp,
+        });
+        app.log.info(
+          {
+            workerId: enrolled.id,
+            enabled: enrolled.enabled,
+            online: enrolled.online,
+            orchestratorUrl,
+            attempt,
+          },
+          "worker enrolled with orchestrator",
+        );
+        lastError = undefined;
+        break;
+      } catch (error) {
+        lastError = error;
+        app.log.warn(
+          {
+            err: error,
+            orchestratorUrl,
+            attempt,
+          },
+          "worker enroll attempt failed",
+        );
+        await sleep(1000 * attempt);
+      }
+    }
+    if (lastError) {
+      app.log.error(
+        {
+          err: lastError,
+          orchestratorUrl,
+        },
+        "worker enroll failed after retries; agent is still listening",
+      );
+    }
+  } else {
+    app.log.info(
+      "skipping auto-enroll (set ORCHESTRATOR_URL and WORKER_ENROLL_TOKEN to enable)",
+    );
+  }
 }
 
 main().catch((error: unknown) => {

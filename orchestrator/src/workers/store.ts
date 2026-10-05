@@ -37,6 +37,9 @@ export type WorkerStore = {
   /** Clear heartbeat so the worker is treated as offline until the next successful poll. */
   markUnseen(id: string): void;
   delete(id: string): boolean;
+  /** Authorization grant that survives worker row delete/re-enroll. */
+  getGrant(id: string): boolean | null;
+  setGrant(id: string, authorized: boolean): void;
   /** Last worker that hosted a persistent profile for subject+browser. */
   getProfilePlacement(subjectId: string, browser: string): string | null;
   setProfilePlacement(subjectId: string, browser: string, workerId: string): void;
@@ -65,6 +68,16 @@ export function createWorkerStore(db: Database.Database): WorkerStore {
   `);
   const markUnseenStmt = db.prepare(`UPDATE workers SET last_seen_at = NULL WHERE id = ?`);
   const remove = db.prepare(`DELETE FROM workers WHERE id = ?`);
+  const getGrantStmt = db.prepare<[string], { authorized: number }>(
+    `SELECT authorized FROM worker_grants WHERE id = ?`,
+  );
+  const upsertGrantStmt = db.prepare(`
+    INSERT INTO worker_grants (id, authorized, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      authorized = excluded.authorized,
+      updated_at = excluded.updated_at
+  `);
   const getPlacement = db.prepare<[string, string], { worker_id: string }>(
     `SELECT worker_id FROM profile_placements WHERE subject_id = ? AND browser = ?`,
   );
@@ -106,6 +119,7 @@ export function createWorkerStore(db: Database.Database): WorkerStore {
     setEnabled(id, enabled) {
       const result = setEnabledStmt.run(enabled ? 1 : 0, id);
       if (result.changes === 0) return null;
+      this.setGrant(id, enabled);
       return this.get(id);
     },
 
@@ -120,8 +134,19 @@ export function createWorkerStore(db: Database.Database): WorkerStore {
     delete(id) {
       const row = this.get(id);
       if (!row || row.kind === "local") return false;
+      // Keep worker_grants so a later re-enroll restores prior authorization.
       remove.run(id);
       return true;
+    },
+
+    getGrant(id) {
+      const row = getGrantStmt.get(id);
+      if (!row) return null;
+      return row.authorized === 1;
+    },
+
+    setGrant(id, authorized) {
+      upsertGrantStmt.run(id, authorized ? 1 : 0, Date.now());
     },
 
     getProfilePlacement(subjectId, browser) {
