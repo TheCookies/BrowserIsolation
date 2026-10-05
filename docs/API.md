@@ -135,10 +135,11 @@ SAML users are not stored in `local_users`.
 | Method | Path | CSRF | Purpose |
 | --- | --- | --- | --- |
 | GET | `/api/admin/workers` | — | Registry + online state |
-| POST | `/api/admin/workers` | Yes | Register remote worker |
-| PATCH | `/api/admin/workers/:workerId` | Yes | Enable / disable |
+| POST | `/api/admin/workers` | Yes | Register remote worker (deprecated; prefer enroll) |
+| PATCH | `/api/admin/workers/:workerId` | Yes | Authorize / deauthorize (`enabled`) |
 | DELETE | `/api/admin/workers/:workerId` | Yes | Remove remote |
 | GET | `/api/admin/workers/:workerId/status` | — | Host metrics |
+| POST | `/api/workers/enroll` | No* | Worker self-register (`Bearer WORKER_ENROLL_TOKEN`; CSRF exempt) |
 
 ---
 

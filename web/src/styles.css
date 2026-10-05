@@ -1730,6 +1730,37 @@ td.empty {
   background: linear-gradient(180deg, #fbfcfe 0%, #f4f7fa 100%);
 }
 
+.workers-manual-add {
+  display: grid;
+  gap: 0.55rem;
+  margin-bottom: 1.15rem;
+}
+
+.workers-deprecated-hint {
+  margin: 0;
+}
+
+.workers-deprecated-hint code {
+  font-size: 0.86em;
+}
+
+.badge.worker-status-pending {
+  background: color-mix(in srgb, #c9852a 18%, var(--surface));
+  color: #8a5a12;
+}
+
+.badge.worker-status-deauthorized,
+.badge.worker-status-disabled,
+.badge.worker-status-offline {
+  background: var(--surface-muted);
+  color: var(--muted);
+}
+
+.badge.worker-status-online {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
 .admin-create-workers {
   grid-template-columns: 0.9fr 1.4fr 1fr 1fr auto;
 }

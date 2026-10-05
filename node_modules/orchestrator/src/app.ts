@@ -16,6 +16,7 @@ import { registerAdminWorkerRoutes } from "./routes/admin-workers";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerPreferenceRoutes } from "./routes/preferences";
 import { registerSessionRoutes } from "./routes/sessions";
+import { registerWorkerEnrollRoutes } from "./routes/workers-enroll";
 import { registerSessionProxy } from "./proxy";
 import { safeEqual } from "./security";
 import type { PortalSession, SessionStore } from "./session-store";
@@ -127,6 +128,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     if (!pathOnly.startsWith("/api/")) return;
     // IdP browser POST — no portal CSRF cookie.
     if (pathOnly === "/api/auth/saml/acs") return;
+    // Worker bootstrap uses a shared enroll bearer token instead of CSRF.
+    if (pathOnly === "/api/workers/enroll") return;
     const header = request.headers["x-csrf-token"];
     const token = Array.isArray(header) ? header[0] : header;
     if (!token || !csrfAccepted(request, config, token)) {
@@ -158,6 +161,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerAdminUserRoutes(app, deps);
   registerAdminVolumeRoutes(app, deps);
   registerAdminWorkerRoutes(app, deps);
+  registerWorkerEnrollRoutes(app, deps);
   registerSessionRoutes(app, deps);
   await registerSessionProxy(app, deps);
 

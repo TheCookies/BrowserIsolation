@@ -72,6 +72,8 @@ export type Config = {
   localWorkerEnabled: boolean;
   /** Bootstrap remote workers: id|baseUrl|publicIp|token,... */
   workersBootstrap: string;
+  /** Shared secret for worker self-enrollment (`POST /api/workers/enroll`). Empty disables enroll. */
+  workerEnrollToken: string;
   /** Canonical portal origin for SAML ACS/metadata (e.g. https://rbi.example.com). */
   publicBaseUrl: string;
   samlEnabled: boolean;
@@ -277,6 +279,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, baseDir: string): Config {
     reaperIntervalSeconds: readInt("REAPER_INTERVAL_SECONDS", env.REAPER_INTERVAL_SECONDS, 60, 5, 3600),
     localWorkerEnabled: readBool("LOCAL_WORKER_ENABLED", env.LOCAL_WORKER_ENABLED, true),
     workersBootstrap: env.WORKERS?.trim() ?? "",
+    workerEnrollToken: env.WORKER_ENROLL_TOKEN?.trim() ?? "",
     publicBaseUrl: env.PUBLIC_BASE_URL?.trim() ?? "",
     samlEnabled: readBool("SAML_ENABLED", env.SAML_ENABLED, false),
     samlEntryPoint: env.SAML_ENTRY_POINT?.trim() ?? "",

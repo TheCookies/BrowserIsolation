@@ -52,6 +52,7 @@ export function testConfig(partial?: Partial<Config>): Config {
     reaperIntervalSeconds: 60,
     localWorkerEnabled: true,
     workersBootstrap: "",
+    workerEnrollToken: "",
     publicBaseUrl: "",
     samlEnabled: false,
     samlEntryPoint: "",

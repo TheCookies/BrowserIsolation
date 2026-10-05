@@ -68,6 +68,7 @@ function testConfig(dir: string, options?: { cookieSecure?: boolean; staticDir?:
     allowDownloads: false,
     localWorkerEnabled: true,
     workersBootstrap: "",
+    workerEnrollToken: "",
     publicBaseUrl: "",
     samlEnabled: false,
     samlEntryPoint: "",

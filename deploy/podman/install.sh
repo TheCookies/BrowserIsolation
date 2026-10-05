@@ -153,6 +153,8 @@ PERSIST_PROFILES_ENABLED=true
 ALLOW_CLIPBOARD=false
 ALLOW_DOWNLOADS=false
 LOCAL_WORKER_ENABLED=true
+# Must match deploy/podman/install-worker.sh for self-enrolling workers.
+WORKER_ENROLL_TOKEN=rbi_enroll_k9m2Vx7Qp4Hs8nWc3YfL6tZa1Bd0EgR5
 BROWSER_NETWORK=rbi-browsers
 BROWSER_SHM_SIZE=2gb
 BROWSER_CPUS=3

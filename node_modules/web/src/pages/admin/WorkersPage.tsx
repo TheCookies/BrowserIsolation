@@ -39,6 +39,17 @@ function meterClass(percent: number): string {
   return "meter-fill";
 }
 
+function workerStatusLabel(worker: AdminWorker): string {
+  if (worker.kind === "local") {
+    if (!worker.enabled) return "Disabled";
+    return worker.online ? "Online" : "Offline";
+  }
+  if (!worker.enabled) {
+    return worker.lastSeenAt ? "Deauthorized" : "Pending";
+  }
+  return worker.online ? "Online" : "Offline";
+}
+
 export function WorkersPage() {
   const { me } = useAdminContext();
   const [workers, setWorkers] = useState<AdminWorker[] | null>(null);
@@ -166,7 +177,8 @@ export function WorkersPage() {
         <div>
           <h1>Workers</h1>
           <p className="hint">
-            Hosts that run browser containers. New sessions go to the least-loaded online worker.
+            Hosts that run browser containers. Prefer the Alma worker bootstrap script; authorize
+            pending workers here. New sessions go to the least-loaded online worker.
           </p>
         </div>
         {workers ? (
@@ -181,54 +193,60 @@ export function WorkersPage() {
         </p>
       ) : null}
       {workersMessage ? <p className="settings-saved">{workersMessage}</p> : null}
-      <form
-        className="admin-create admin-create-workers"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void onCreateWorker();
-        }}
-      >
-        <label>
-          Name
-          <input
-            value={newWorkerId}
-            onChange={(event) => setNewWorkerId(event.target.value)}
-            required
-            placeholder="edge-1"
-          />
-        </label>
-        <label>
-          Agent URL
-          <input
-            value={newWorkerUrl}
-            onChange={(event) => setNewWorkerUrl(event.target.value)}
-            required
-            placeholder="http://10.0.0.5:8090"
-          />
-        </label>
-        <label>
-          Public IP
-          <input
-            value={newWorkerIp}
-            onChange={(event) => setNewWorkerIp(event.target.value)}
-            required
-            placeholder="10.0.0.5"
-          />
-        </label>
-        <label>
-          Token
-          <input
-            type="password"
-            value={newWorkerToken}
-            onChange={(event) => setNewWorkerToken(event.target.value)}
-            required
-            autoComplete="off"
-          />
-        </label>
-        <button type="submit" disabled={workerBusy === "create"}>
-          {workerBusy === "create" ? "Adding…" : "Add worker"}
-        </button>
-      </form>
+      <div className="workers-manual-add">
+        <p className="hint workers-deprecated-hint">
+          Deprecated — prefer <code>install-worker.sh</code> on the worker host. Manual add remains
+          as a fallback and will be removed in a later version.
+        </p>
+        <form
+          className="admin-create admin-create-workers"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void onCreateWorker();
+          }}
+        >
+          <label>
+            Name
+            <input
+              value={newWorkerId}
+              onChange={(event) => setNewWorkerId(event.target.value)}
+              required
+              placeholder="edge-1"
+            />
+          </label>
+          <label>
+            Agent URL
+            <input
+              value={newWorkerUrl}
+              onChange={(event) => setNewWorkerUrl(event.target.value)}
+              required
+              placeholder="http://10.0.0.5:8090"
+            />
+          </label>
+          <label>
+            Public IP
+            <input
+              value={newWorkerIp}
+              onChange={(event) => setNewWorkerIp(event.target.value)}
+              required
+              placeholder="10.0.0.5"
+            />
+          </label>
+          <label>
+            Token
+            <input
+              type="password"
+              value={newWorkerToken}
+              onChange={(event) => setNewWorkerToken(event.target.value)}
+              required
+              autoComplete="off"
+            />
+          </label>
+          <button type="submit" disabled={workerBusy === "create"}>
+            {workerBusy === "create" ? "Adding…" : "Add worker"}
+          </button>
+        </form>
+      </div>
       {workers ? (
         <div className="table-wrap">
           <table>
@@ -261,7 +279,11 @@ export function WorkersPage() {
                     </td>
                     <td>{worker.publicIp}</td>
                     <td>
-                      {!worker.enabled ? "disabled" : worker.online ? "online" : "offline"}
+                      <span
+                        className={`badge worker-status-${workerStatusLabel(worker).toLowerCase()}`}
+                      >
+                        {workerStatusLabel(worker)}
+                      </span>
                     </td>
                     <td>{worker.activeSessions}</td>
                     <td>{formatTime(worker.lastSeenAt)}</td>
@@ -275,14 +297,25 @@ export function WorkersPage() {
                         >
                           Status
                         </button>
-                        <button
-                          type="button"
-                          className="button-quiet"
-                          disabled={workerBusy === worker.id}
-                          onClick={() => void onToggleWorker(worker, !worker.enabled)}
-                        >
-                          {worker.enabled ? "Disable" : "Enable"}
-                        </button>
+                        {worker.kind === "remote" ? (
+                          <button
+                            type="button"
+                            className="button-quiet"
+                            disabled={workerBusy === worker.id}
+                            onClick={() => void onToggleWorker(worker, !worker.enabled)}
+                          >
+                            {worker.enabled ? "Deauthorize" : "Authorize"}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="button-quiet"
+                            disabled={workerBusy === worker.id}
+                            onClick={() => void onToggleWorker(worker, !worker.enabled)}
+                          >
+                            {worker.enabled ? "Disable" : "Enable"}
+                          </button>
+                        )}
                         {worker.kind === "remote" ? (
                           <button
                             type="button"

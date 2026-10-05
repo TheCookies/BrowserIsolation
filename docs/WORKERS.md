@@ -63,7 +63,37 @@ podman compose --profile worker up -d worker
 
 The `worker` service publishes `52000-52099` UDP+TCP by default. Edit the Compose port mappings if your range differs.
 
-## Registering workers on the portal
+## Self-enrollment (recommended)
+
+On a new Alma/RHEL worker host, run the bootstrap script. It asks **only** for the orchestrator host/IP, then installs Podman, logs into GHCR, pulls images, starts the worker agent, and registers itself as **Pending**.
+
+```bash
+sudo podman run --rm --entrypoint cat \
+  ghcr.io/thecookies/browserisolation:latest /deploy/install-worker.sh | sudo bash
+# Prompt: Orchestrator host or URL  →  e.g. 10.0.0.2  or  http://rbi.example.com:8080
+```
+
+Orchestrator requirement: set the same enroll secret as the script:
+
+```bash
+WORKER_ENROLL_TOKEN=rbi_enroll_k9m2Vx7Qp4Hs8nWc3YfL6tZa1Bd0EgR5
+```
+
+(Fresh installs via `deploy/podman/install.sh` / first-boot entrypoint already include this value.)
+
+Then open **Admin → Workers** and click **Authorize**. Use **Deauthorize** to stop scheduling without deleting the row.
+
+| Status | Meaning |
+| --- | --- |
+| Pending | Enrolled, not yet authorized (`enabled=false`, never seen) |
+| Online / Offline | Authorized; heartbeat within / outside ~45s |
+| Deauthorized | Previously seen, then disabled |
+
+Re-running `install-worker.sh` refreshes URL/IP and **rotates** the worker token but keeps the current authorize state.
+
+API: `POST /api/workers/enroll` with `Authorization: Bearer <WORKER_ENROLL_TOKEN>`.
+
+## Manual / env registration (deprecated fallback)
 
 **Bootstrap via env** (orchestrator host):
 
@@ -72,7 +102,7 @@ WORKERS=edge1|http://10.0.0.5:8090|10.0.0.5|replace-me-with-a-long-secret
 LOCAL_WORKER_ENABLED=false   # optional: control-plane-only portal
 ```
 
-**Or Admin → Workers → Add worker** with the same fields (`id`, agent URL, public IP, token).
+**Or Admin → Workers → Add worker** with the same fields (`id`, agent URL, public IP, token). This form is deprecated in favor of `install-worker.sh` and will be removed in a later version.
 
 The orchestrator polls `GET /v1/status` every **15s**. Workers with a fresh heartbeat (within ~45s) show as **online**.
 
