@@ -423,6 +423,76 @@ export function pullAdminBrowsers(csrfToken: string): Promise<{
   return request("/api/admin/browsers/pull", { method: "POST" }, csrfToken);
 }
 
+export type BrowserPullStreamEvent =
+  | {
+      type: "start";
+      tag: string;
+      images: string[];
+      message: string;
+    }
+  | {
+      type: "progress";
+      image: string;
+      status: string;
+      id?: string;
+      current?: number;
+      total?: number;
+      percent?: number;
+      detail?: string;
+    }
+  | {
+      type: "done";
+      ok: boolean;
+      tag: string;
+      results: Array<{ image: string; ok: boolean; error?: string; workerId?: string }>;
+      message: string;
+    }
+  | { type: "error"; message: string };
+
+export async function pullAdminBrowsersStream(
+  csrfToken: string,
+  onEvent: (event: BrowserPullStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch("/api/admin/browsers/pull/stream", {
+    method: "POST",
+    headers: { "x-csrf-token": csrfToken },
+    credentials: "same-origin",
+    signal,
+  });
+  if (!response.ok) {
+    const data = (await response.json().catch(() => ({}))) as { error?: string; detail?: string };
+    const error = new ApiError(response.status, data.error ?? "request_failed");
+    if (data.detail) error.message = data.detail;
+    throw error;
+  }
+  if (!response.body) {
+    throw new ApiError(500, "stream_unavailable");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split("\n\n");
+    buffer = chunks.pop() ?? "";
+    for (const chunk of chunks) {
+      for (const line of chunk.split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          onEvent(JSON.parse(line.slice(6)) as BrowserPullStreamEvent);
+        } catch {
+          /* ignore malformed frames */
+        }
+      }
+    }
+  }
+}
+
 export function getAdminUsers(): Promise<{ users: AdminLocalUser[] }> {
   return request("/api/admin/users");
 }

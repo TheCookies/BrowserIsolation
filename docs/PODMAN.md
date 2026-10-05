@@ -76,6 +76,7 @@ echo "$GHCR_TOKEN" | sudo podman login ghcr.io -u YOUR_GITHUB_USERNAME \
   --authfile /etc/containers/auth.json --password-stdin
 sudo mkdir -p /etc/browser-isolation
 sudo podman run -d --name browser-isolation --restart=always --network=host \
+  --security-opt label=disable \
   -v /etc/browser-isolation:/config:Z \
   -v rbi-data:/data:Z \
   -v /run/podman/podman.sock:/var/run/docker.sock \

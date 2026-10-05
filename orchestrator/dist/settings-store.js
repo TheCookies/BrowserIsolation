@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.configValueForKey = configValueForKey;
 exports.applySettingToConfig = applySettingToConfig;
 exports.createSettingsStore = createSettingsStore;
+const audit_store_1 = require("./audit-store");
 const config_1 = require("./config");
 const neko_browsers_1 = require("./neko-browsers");
 const saml_1 = require("./auth/saml");
@@ -112,6 +113,8 @@ function configValueForKey(config, key) {
             return config.samlGroupsAttr;
         case "SAML_ADMIN_GROUP":
             return config.samlAdminGroup;
+        case "AUDIT_ENABLED_ACTIONS":
+            return (0, audit_store_1.formatAuditEnabledActions)(config.auditEnabledActions);
         default:
             throw new Error(`Unknown setting ${key}`);
     }
@@ -241,6 +244,9 @@ function applySettingToConfig(config, key, raw) {
             return;
         case "SAML_ADMIN_GROUP":
             config.samlAdminGroup = value;
+            return;
+        case "AUDIT_ENABLED_ACTIONS":
+            config.auditEnabledActions = (0, audit_store_1.parseAuditEnabledActions)(value || "[]");
             return;
         default:
             throw new Error(`Setting ${key} is not editable.`);

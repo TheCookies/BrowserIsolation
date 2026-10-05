@@ -63,6 +63,12 @@ function registerAuthRoutes(app, deps) {
         reply.clearCookie(config.csrfCookieName, (0, app_1.clearCookieOptions)(config));
         reply.setCookie(config.cookieName, session.id, (0, app_1.sessionCookie)(config));
         request.log.info({ username: user.username, role: user.role, subjectId: user.subjectId }, "login succeeded");
+        audit.record({
+            actorUsername: user.username,
+            action: "login",
+            ownerUsername: user.username,
+            detail: `password login (${user.role})`,
+        });
         const prefs = preferences.get(user.subjectId);
         return {
             username: user.username,
@@ -111,14 +117,12 @@ function registerAuthRoutes(app, deps) {
                 subjectId: user.subjectId,
                 via: "saml",
             }, "saml login succeeded");
-            if (user.role === "admin") {
-                audit.record({
-                    actorUsername: user.username,
-                    action: "saml_login",
-                    ownerUsername: user.username,
-                    detail: `SAML SSO login as admin (${user.subjectId})`,
-                });
-            }
+            audit.record({
+                actorUsername: user.username,
+                action: "saml_login",
+                ownerUsername: user.username,
+                detail: `SAML SSO login (${user.role}, ${user.subjectId})`,
+            });
             return reply.redirect("/");
         }
         catch (error) {
@@ -154,6 +158,12 @@ function registerAuthRoutes(app, deps) {
         sessions.delete(request.portalSession.id);
         reply.clearCookie(config.cookieName, (0, app_1.clearCookieOptions)(config));
         request.log.info({ username: user.username, role: user.role }, "logout");
+        audit.record({
+            actorUsername: user.username,
+            action: "logout",
+            ownerUsername: user.username,
+            detail: `logout (${user.role})`,
+        });
         return { ok: true };
     });
     app.get("/api/me", async (request, reply) => {

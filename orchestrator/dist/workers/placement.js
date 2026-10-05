@@ -165,29 +165,58 @@ function createWorkerPlacement(deps) {
             }
             return out;
         },
-        async pullImages(images) {
+        async pullImages(images, onProgress) {
             const results = [];
             for (const worker of store.list()) {
                 if (!worker.enabled)
                     continue;
                 try {
                     if (worker.kind === "local") {
-                        const pulled = await localRuntime.pullImages(images);
+                        const pulled = await localRuntime.pullImages(images, (event) => {
+                            onProgress?.({
+                                ...event,
+                                detail: event.detail
+                                    ? `[${worker.id}] ${event.detail}`
+                                    : `[${worker.id}] ${event.status}`,
+                            });
+                        });
                         for (const item of pulled)
                             results.push({ ...item, workerId: worker.id });
                     }
                     else {
+                        for (const image of images) {
+                            onProgress?.({
+                                image,
+                                status: "Pulling",
+                                detail: `[${worker.id}] Requesting pull on remote worker…`,
+                            });
+                        }
                         const pulled = await remote(worker).pullImages(images);
-                        for (const item of pulled)
+                        for (const item of pulled) {
+                            onProgress?.({
+                                image: item.image,
+                                status: item.ok ? "complete" : "error",
+                                percent: item.ok ? 100 : undefined,
+                                detail: item.ok
+                                    ? `[${worker.id}] Pull complete`
+                                    : `[${worker.id}] ${item.error ?? "pull failed"}`,
+                            });
                             results.push({ ...item, workerId: worker.id });
+                        }
                     }
                 }
                 catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
                     for (const image of images) {
+                        onProgress?.({
+                            image,
+                            status: "error",
+                            detail: `[${worker.id}] ${message}`,
+                        });
                         results.push({
                             image,
                             ok: false,
-                            error: error instanceof Error ? error.message : String(error),
+                            error: message,
                             workerId: worker.id,
                         });
                     }
@@ -195,10 +224,18 @@ function createWorkerPlacement(deps) {
             }
             return results;
         },
-        proxyTarget(workerId, containerId, containerName) {
+        async proxyTarget(workerId, containerId, _containerName) {
             const worker = requireWorker(workerId);
             if (worker.kind === "local") {
-                return { targetOrigin: `http://${containerName}:8080` };
+                // Prefer container IP over Docker/Podman DNS names. With --network=host
+                // (Podman deploy) the orchestrator is not on rbi-browsers, so names like
+                // rbi-<session> do not resolve and the viewer WebSocket dies immediately.
+                const info = await localRuntime.inspect(containerId);
+                const host = info?.ipAddress;
+                if (!host) {
+                    throw Object.assign(new Error("container_missing_ip"), { statusCode: 502 });
+                }
+                return { targetOrigin: `http://${host}:8080` };
             }
             const client = remote(worker);
             return {

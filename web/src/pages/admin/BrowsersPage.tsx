@@ -1,12 +1,32 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   getAdminBrowsers,
-  pullAdminBrowsers,
+  pullAdminBrowsersStream,
   updateAdminBrowsers,
   type AdminBrowserCatalogItem,
+  type BrowserPullStreamEvent,
 } from "../../api";
 import { useAdminContext } from "./context";
+
+function formatBytes(n: number | undefined): string {
+  if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function progressLine(event: Extract<BrowserPullStreamEvent, { type: "progress" }>): string {
+  const bits = [event.status];
+  if (event.id) bits.push(event.id.slice(0, 12));
+  if (event.detail) bits.push(event.detail);
+  else if (typeof event.current === "number" && typeof event.total === "number" && event.total > 0) {
+    bits.push(`${formatBytes(event.current)} / ${formatBytes(event.total)}`);
+  }
+  if (typeof event.percent === "number") bits.push(`${event.percent.toFixed(1)}%`);
+  return `[${event.image}] ${bits.join(" · ")}`;
+}
 
 export function BrowsersPage() {
   const { me } = useAdminContext();
@@ -17,6 +37,15 @@ export function BrowsersPage() {
   const [browsersMessage, setBrowsersMessage] = useState<string | null>(null);
   const [savingBrowsers, setSavingBrowsers] = useState(false);
   const [pullingBrowsers, setPullingBrowsers] = useState(false);
+
+  const [pullOpen, setPullOpen] = useState(false);
+  const [pullLines, setPullLines] = useState<string[]>([]);
+  const [pullPercent, setPullPercent] = useState<number | null>(null);
+  const [pullCurrentImage, setPullCurrentImage] = useState<string | null>(null);
+  const [pullDone, setPullDone] = useState(false);
+  const [pullFailed, setPullFailed] = useState(false);
+  const consoleRef = useRef<HTMLPreElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const loadBrowsers = useCallback(async () => {
     const result = await getAdminBrowsers();
@@ -40,6 +69,18 @@ export function BrowsersPage() {
       cancelled = true;
     };
   }, [loadBrowsers]);
+
+  useEffect(() => {
+    const el = consoleRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [pullLines]);
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   const browsersDirty = useMemo(() => {
     if (!catalog) return false;
@@ -78,6 +119,13 @@ export function BrowsersPage() {
     }
   }
 
+  function appendPullLine(line: string) {
+    setPullLines((prev) => {
+      const next = prev.length > 800 ? prev.slice(-600) : prev;
+      return [...next, line];
+    });
+  }
+
   async function onPullLatest() {
     if (enabledCount === 0) {
       setError("Enable at least one browser before pulling images.");
@@ -87,31 +135,91 @@ export function BrowsersPage() {
       setError("Save your browser selection before pulling.");
       return;
     }
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setPullingBrowsers(true);
     setBrowsersMessage(null);
     setError(null);
+    setPullOpen(true);
+    setPullLines([]);
+    setPullPercent(null);
+    setPullCurrentImage(null);
+    setPullDone(false);
+    setPullFailed(false);
+
     try {
-      const result = await pullAdminBrowsers(me.csrfToken);
-      const ok = result.results.filter((row) => row.ok).length;
-      const failed = result.results.filter((row) => !row.ok);
-      if (failed.length === 0) {
-        setBrowsersMessage(`Pulled ${ok} image(s) at tag ${result.tag}.`);
-      } else {
-        setError(
-          `Pulled ${ok}/${result.results.length}. Failed: ${failed
-            .map((row) => `${row.image}${row.error ? ` (${row.error})` : ""}`)
-            .join("; ")}`,
-        );
-      }
+      await pullAdminBrowsersStream(
+        me.csrfToken,
+        (event) => {
+          if (event.type === "start") {
+            appendPullLine(event.message);
+            for (const image of event.images) appendPullLine(`  · ${image}`);
+            return;
+          }
+          if (event.type === "progress") {
+            setPullCurrentImage(event.image);
+            if (typeof event.percent === "number") setPullPercent(event.percent);
+            appendPullLine(progressLine(event));
+            return;
+          }
+          if (event.type === "done") {
+            appendPullLine(event.message);
+            for (const row of event.results) {
+              appendPullLine(
+                row.ok
+                  ? `  ✓ ${row.image}${row.workerId ? ` (${row.workerId})` : ""}`
+                  : `  ✗ ${row.image}${row.workerId ? ` (${row.workerId})` : ""}${
+                      row.error ? `: ${row.error}` : ""
+                    }`,
+              );
+            }
+            if (event.ok) setPullPercent(100);
+            setPullDone(true);
+            setPullFailed(!event.ok);
+            if (event.ok) {
+              setBrowsersMessage(`Pulled image(s) at tag ${event.tag}.`);
+            } else {
+              setError(event.message);
+            }
+            return;
+          }
+          if (event.type === "error") {
+            appendPullLine(`ERROR: ${event.message}`);
+            setPullDone(true);
+            setPullFailed(true);
+            setError(event.message);
+          }
+        },
+        controller.signal,
+      );
     } catch (err) {
-      setError(
+      if (err instanceof DOMException && err.name === "AbortError") {
+        appendPullLine("Pull cancelled.");
+        setPullDone(true);
+        return;
+      }
+      const message =
         err instanceof ApiError && err.message && err.message !== err.code
           ? err.message
-          : "Unable to pull browser images.",
-      );
+          : "Unable to pull browser images.";
+      appendPullLine(`ERROR: ${message}`);
+      setPullDone(true);
+      setPullFailed(true);
+      setError(message);
     } finally {
       setPullingBrowsers(false);
+      setPullDone(true);
     }
+  }
+
+  function closePullModal() {
+    if (pullingBrowsers) {
+      abortRef.current?.abort();
+    }
+    setPullOpen(false);
   }
 
   return (
@@ -192,6 +300,65 @@ export function BrowsersPage() {
           <span className="loading-line" aria-hidden="true" /> Loading browsers…
         </p>
       )}
+
+      {pullOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={closePullModal}>
+          <div
+            className="modal-panel modal-panel-wide pull-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pull-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="panel-header">
+              <div>
+                <h2 id="pull-modal-title">Pulling browser images</h2>
+                <p className="hint">
+                  {pullCurrentImage
+                    ? `Current: ${pullCurrentImage}`
+                    : pullingBrowsers
+                      ? "Starting…"
+                      : pullFailed
+                        ? "Finished with errors"
+                        : "Finished"}
+                </p>
+              </div>
+              <button type="button" className="button-quiet" onClick={closePullModal}>
+                {pullingBrowsers ? "Cancel" : "Close"}
+              </button>
+            </div>
+
+            <div className="pull-progress-block">
+              <div className="pull-progress-label">
+                <strong>Progress</strong>
+                <span>{typeof pullPercent === "number" ? `${pullPercent.toFixed(1)}%` : "—"}</span>
+              </div>
+              <div
+                className="pull-progress-track"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={typeof pullPercent === "number" ? Math.round(pullPercent) : 0}
+              >
+                <div
+                  className="pull-progress-fill"
+                  style={{ width: `${typeof pullPercent === "number" ? pullPercent : 0}%` }}
+                />
+              </div>
+            </div>
+
+            <pre className="pull-console" ref={consoleRef} aria-live="polite">
+              {pullLines.length ? pullLines.join("\n") : "Waiting for pull output…"}
+            </pre>
+
+            {pullDone ? (
+              <p className={pullFailed ? "alert" : "settings-saved"} role="status">
+                {pullFailed ? "Pull finished with errors. See console above." : "Pull complete."}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

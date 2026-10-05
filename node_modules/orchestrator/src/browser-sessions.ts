@@ -156,7 +156,7 @@ export function createBrowserSessionService(deps: {
       }
 
       await ensureRunning(session);
-      const proxy = placement.proxyTarget(
+      const proxy = await placement.proxyTarget(
         session.workerId,
         session.containerId,
         session.containerName,

@@ -35,7 +35,9 @@ async function main() {
     sessions.deleteExpired();
     const browserStore = (0, browser_session_store_1.createBrowserSessionStore)(db);
     const preferences = (0, user_preferences_1.createUserPreferencesStore)(db);
-    const audit = (0, audit_store_1.createAuditStore)(db);
+    const audit = (0, audit_store_1.createAuditStore)(db, {
+        isEnabled: (action) => config.auditEnabledActions.includes(action),
+    });
     const viewers = (0, viewer_tracker_1.createViewerTracker)();
     const localPorts = (0, port_pool_1.createPortPool)(db, config.webrtcPortStart, config.webrtcPortEnd);
     const localRuntime = (0, container_runtime_1.createDockerRuntime)(config);

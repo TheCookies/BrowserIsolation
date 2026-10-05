@@ -84,7 +84,7 @@ function createBrowserSessionService(deps) {
                 return { session, proxy: cached.proxy };
             }
             await ensureRunning(session);
-            const proxy = placement.proxyTarget(session.workerId, session.containerId, session.containerName);
+            const proxy = await placement.proxyTarget(session.workerId, session.containerId, session.containerName);
             cacheProxyTarget(sessionId, proxy);
             store.touch(session.id);
             return { session, proxy };

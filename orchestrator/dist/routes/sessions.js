@@ -14,7 +14,7 @@ function publicSession(session) {
     };
 }
 function registerSessionRoutes(app, deps) {
-    const { browsers, config } = deps;
+    const { browsers, config, audit } = deps;
     app.get("/api/browsers", async (request, reply) => {
         if (!request.authUser || !request.portalSession) {
             return reply.code(401).send({ error: "unauthenticated" });
@@ -56,7 +56,17 @@ function registerSessionRoutes(app, deps) {
             return reply.code(401).send({ error: "unauthenticated" });
         }
         try {
-            const result = await browsers.launch(request.authUser, request.body.browser);
+            const user = request.authUser;
+            const result = await browsers.launch(user, request.body.browser);
+            if (!result.reconnect) {
+                audit.record({
+                    actorUsername: user.username,
+                    action: "create_session",
+                    sessionId: result.session.id,
+                    ownerUsername: user.username,
+                    detail: `launched ${result.session.browser}`,
+                });
+            }
             return {
                 session: publicSession(result.session),
                 reconnect: result.reconnect,
@@ -121,7 +131,18 @@ function registerSessionRoutes(app, deps) {
         if (!request.authUser || !request.portalSession) {
             return reply.code(401).send({ error: "unauthenticated" });
         }
-        const destroyed = await browsers.destroyForUser(request.authUser.username);
+        const user = request.authUser;
+        const existing = browsers.getMine(user.username);
+        const destroyed = await browsers.destroyForUser(user.username);
+        if (destroyed && existing) {
+            audit.record({
+                actorUsername: user.username,
+                action: "destroy_session",
+                sessionId: existing.id,
+                ownerUsername: user.username,
+                detail: `ended ${existing.browser} session`,
+            });
+        }
         return { ok: true, destroyed };
     });
 }

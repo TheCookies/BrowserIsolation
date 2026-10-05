@@ -110,6 +110,7 @@ All routes require `role === "admin"`.
 | GET | `/api/admin/browsers` | — | Full Neko catalog + enabled flags |
 | PUT | `/api/admin/browsers` | Yes | Set enabled browser ids |
 | POST | `/api/admin/browsers/pull` | Yes | Pull images on workers |
+| POST | `/api/admin/browsers/pull/stream` | Yes | SSE stream of pull progress (admin Pull modal) |
 
 ### Users (local only)
 

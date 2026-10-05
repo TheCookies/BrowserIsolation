@@ -11,6 +11,7 @@ exports.policyMountForBrowser = policyMountForBrowser;
 exports.enabledBrowsersCsv = enabledBrowsersCsv;
 const node_fs_1 = require("node:fs");
 const node_path_1 = __importDefault(require("node:path"));
+const audit_store_1 = require("./audit-store");
 const local_provider_1 = require("./auth/local-provider");
 const neko_browsers_1 = require("./neko-browsers");
 function readBool(name, raw, fallback) {
@@ -173,6 +174,9 @@ function loadConfig(env, baseDir) {
         samlUsernameAttr: env.SAML_USERNAME_ATTR?.trim() ?? "",
         samlGroupsAttr: env.SAML_GROUPS_ATTR?.trim() ?? "",
         samlAdminGroup: env.SAML_ADMIN_GROUP?.trim() ?? "",
+        auditEnabledActions: env.AUDIT_ENABLED_ACTIONS?.trim()
+            ? (0, audit_store_1.parseAuditEnabledActions)(env.AUDIT_ENABLED_ACTIONS)
+            : (0, audit_store_1.defaultAuditEnabledActions)(),
     };
 }
 function imageForBrowser(config, browser) {

@@ -155,6 +155,10 @@ function openDatabase(filePath) {
 
     CREATE INDEX IF NOT EXISTS idx_audit_events_created
       ON audit_events(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_actor
+      ON audit_events(actor_username);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_action
+      ON audit_events(action);
   `);
     recreateBrowserSessionsWithoutBrowserCheck(db);
     migrateLegacyChromeBrowserId(db);
@@ -162,7 +166,16 @@ function openDatabase(filePath) {
     migratePortalSessionsSubjectId(db);
     migrateBrowserSessionWorkers(db);
     migrateAuditEventsWidenActions(db);
+    migrateAuditEventsFilterIndexes(db);
     return db;
+}
+function migrateAuditEventsFilterIndexes(db) {
+    db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_audit_events_actor
+      ON audit_events(actor_username);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_action
+      ON audit_events(action);
+  `);
 }
 /** Drop the old join/terminate-only CHECK so new admin actions can be stored. */
 function migrateAuditEventsWidenActions(db) {

@@ -12,18 +12,71 @@ const config_1 = require("../config");
 const labels_1 = require("./labels");
 const policy_tar_1 = require("./policy-tar");
 const profile_paths_1 = require("./profile-paths");
-function pullOneImage(docker, image) {
+function pullOneImage(docker, image, onProgress) {
     return new Promise((resolve, reject) => {
         docker.pull(image, (error, stream) => {
             if (error) {
                 reject(error);
                 return;
             }
+            const layers = new Map();
+            let lastEmitAt = 0;
+            let lastStatusKey = "";
+            const emit = (event, force = false) => {
+                if (!onProgress)
+                    return;
+                const now = Date.now();
+                const key = `${event.id ?? ""}:${event.status}:${event.percent ?? ""}`;
+                if (!force && key === lastStatusKey && now - lastEmitAt < 200)
+                    return;
+                lastStatusKey = key;
+                lastEmitAt = now;
+                onProgress(event);
+            };
             docker.modem.followProgress(stream, (followError) => {
                 if (followError)
                     reject(followError);
                 else
                     resolve();
+            }, (event) => {
+                if (!onProgress)
+                    return;
+                if (event.error || event.errorDetail?.message) {
+                    emit({
+                        image,
+                        status: "error",
+                        detail: event.error || event.errorDetail?.message,
+                    }, true);
+                    return;
+                }
+                const status = event.status?.trim() || "working";
+                const id = event.id?.trim() || undefined;
+                const current = event.progressDetail?.current;
+                const total = event.progressDetail?.total;
+                if (id && typeof current === "number" && typeof total === "number" && total > 0) {
+                    layers.set(id, { current, total });
+                }
+                let percent;
+                if (layers.size > 0) {
+                    let sumCurrent = 0;
+                    let sumTotal = 0;
+                    for (const layer of layers.values()) {
+                        sumCurrent += layer.current;
+                        sumTotal += layer.total;
+                    }
+                    if (sumTotal > 0) {
+                        percent = Math.min(100, Math.round((sumCurrent / sumTotal) * 1000) / 10);
+                    }
+                }
+                emit({
+                    image,
+                    status,
+                    id,
+                    current: typeof current === "number" ? current : undefined,
+                    total: typeof total === "number" ? total : undefined,
+                    percent,
+                    detail: event.progress?.trim() || undefined,
+                });
             });
         });
     });
@@ -259,6 +312,13 @@ function createDockerRuntime(config) {
                 Image: (0, config_1.imageForBrowser)(launchConfig, input.browser),
                 Env: nekoEnv(view, input),
                 Labels: labels,
+                // Join the browser network via EndpointsConfig (not NetworkMode=name) so
+                // PortBindings keep working under Podman as well as Docker.
+                NetworkingConfig: {
+                    EndpointsConfig: {
+                        [config.browserNetwork]: {},
+                    },
+                },
                 HostConfig: {
                     Init: true,
                     ShmSize: view.browserShmSizeBytes,
@@ -282,7 +342,6 @@ function createDockerRuntime(config) {
                     ],
                     // Chrome's sandbox syscalls are outside Docker's default seccomp profile.
                     SecurityOpt: ["no-new-privileges:true", "seccomp=unconfined"],
-                    NetworkMode: config.browserNetwork,
                     PortBindings: {
                         [`${port}/udp`]: [{ HostIp: "0.0.0.0", HostPort: port }],
                         [`${port}/tcp`]: [{ HostIp: "0.0.0.0", HostPort: port }],
@@ -476,18 +535,22 @@ function createDockerRuntime(config) {
                 throw error;
             }
         },
-        async pullImages(images) {
+        async pullImages(images, onProgress) {
             const results = [];
             for (const image of images) {
                 try {
-                    await pullOneImage(docker, image);
+                    onProgress?.({ image, status: "Pulling", detail: `Starting ${image}` });
+                    await pullOneImage(docker, image, onProgress);
+                    onProgress?.({ image, status: "complete", percent: 100, detail: "Pull complete" });
                     results.push({ image, ok: true });
                 }
                 catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    onProgress?.({ image, status: "error", detail: message });
                     results.push({
                         image,
                         ok: false,
-                        error: error instanceof Error ? error.message : String(error),
+                        error: message,
                     });
                 }
             }

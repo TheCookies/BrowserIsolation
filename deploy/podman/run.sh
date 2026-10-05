@@ -46,10 +46,12 @@ fi
 
 podman rm -f "${NAME}" >/dev/null 2>&1 || true
 
+# label=disable: Alma/RHEL SELinux otherwise returns EACCES on the mounted podman.sock
 podman run -d \
   --name "${NAME}" \
   --restart=always \
   --network=host \
+  --security-opt label=disable \
   -v "${CONFIG_DIR}:/config:Z" \
   -v "${DATA_VOLUME}:/data:Z" \
   -v "${SOCKET}:/var/run/docker.sock" \

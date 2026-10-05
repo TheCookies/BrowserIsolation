@@ -103,5 +103,66 @@ function registerAdminBrowserRoutes(app, deps) {
             results,
         };
     });
+    /** SSE stream of pull progress for the admin Pull modal. */
+    app.post("/api/admin/browsers/pull/stream", async (request, reply) => {
+        if (!requireAdmin(request, reply))
+            return;
+        request.raw.setTimeout(30 * 60 * 1000);
+        reply.hijack();
+        reply.raw.writeHead(200, {
+            "Content-Type": "text/event-stream; charset=utf-8",
+            "Cache-Control": "no-cache, no-transform",
+            Connection: "keep-alive",
+            "X-Accel-Buffering": "no",
+        });
+        const send = (payload) => {
+            reply.raw.write(`data: ${JSON.stringify(payload)}\n\n`);
+        };
+        try {
+            const images = config.enabledBrowsers.map((id) => {
+                const meta = (0, neko_browsers_1.getNekoBrowser)(id);
+                if (!meta)
+                    throw new Error(`unknown browser ${id}`);
+                return (0, config_1.imageForBrowser)(config, id);
+            });
+            const unique = [...new Set(images)];
+            send({
+                type: "start",
+                tag: config.nekoImageTag,
+                images: unique,
+                message: `Pulling ${unique.length} image(s) at tag ${config.nekoImageTag}…`,
+            });
+            const results = await placement.pullImages(unique, (event) => {
+                send({ type: "progress", ...event });
+            });
+            const failed = results.filter((result) => !result.ok);
+            const okCount = results.length - failed.length;
+            audit.record({
+                actorUsername: request.authUser.username,
+                action: "pull_browsers",
+                detail: failed.length === 0
+                    ? `pulled ${okCount} image(s) (tag ${config.nekoImageTag})`
+                    : `pulled ${okCount}/${results.length} image(s); failed: ${failed
+                        .map((row) => row.image)
+                        .join(", ")}`,
+            });
+            send({
+                type: "done",
+                ok: failed.length === 0,
+                tag: config.nekoImageTag,
+                results,
+                message: failed.length === 0
+                    ? `Finished: pulled ${okCount} image(s).`
+                    : `Finished with errors: ${okCount}/${results.length} succeeded.`,
+            });
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            send({ type: "error", message });
+        }
+        finally {
+            reply.raw.end();
+        }
+    });
 }
 //# sourceMappingURL=admin-browsers.js.map

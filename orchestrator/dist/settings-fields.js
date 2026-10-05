@@ -38,6 +38,11 @@ exports.SETTING_GROUPS = [
         title: "SSO / SAML",
         hint: "Connect Google Workspace, Microsoft Entra ID, or any SAML 2.0 identity provider.",
     },
+    {
+        id: "audit",
+        title: "Audit log",
+        hint: "Choose which administrator and user actions are recorded.",
+    },
 ];
 exports.EDITABLE_SETTINGS = [
     {
@@ -250,6 +255,13 @@ exports.EDITABLE_SETTINGS = [
         description: "If any group equals this value (case-insensitive), the user is an administrator. Leave blank to never auto-promote.",
         group: "sso",
         type: "string",
+    },
+    {
+        key: "AUDIT_ENABLED_ACTIONS",
+        label: "Logged actions",
+        description: "JSON array of audit action ids that are recorded.",
+        group: "audit",
+        type: "json",
     },
 ];
 function editableKeys() {

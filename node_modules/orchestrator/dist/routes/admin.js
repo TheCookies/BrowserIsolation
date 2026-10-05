@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerAdminRoutes = registerAdminRoutes;
+const audit_store_1 = require("../audit-store");
 function requireAdmin(request, reply) {
     if (!request.authUser || !request.portalSession) {
         void reply.code(401).send({ error: "unauthenticated" });
@@ -13,7 +14,7 @@ function requireAdmin(request, reply) {
     return true;
 }
 function registerAdminRoutes(app, deps) {
-    const { browsers, audit, viewers, settings } = deps;
+    const { browsers, audit, viewers, settings, config } = deps;
     app.get("/api/admin/sessions", async (request, reply) => {
         if (!requireAdmin(request, reply))
             return;
@@ -96,7 +97,40 @@ function registerAdminRoutes(app, deps) {
     app.get("/api/admin/audit", async (request, reply) => {
         if (!requireAdmin(request, reply))
             return;
-        const events = audit.list(500).map((event) => ({
+        const query = request.query ?? {};
+        const filter = { limit: 500 };
+        if (query.limit !== undefined && query.limit !== "") {
+            const limit = Number(query.limit);
+            if (!Number.isFinite(limit)) {
+                return reply.code(400).send({ error: "invalid_limit" });
+            }
+            filter.limit = limit;
+        }
+        if (query.from !== undefined && query.from !== "") {
+            const from = Date.parse(query.from);
+            if (!Number.isFinite(from)) {
+                return reply.code(400).send({ error: "invalid_from" });
+            }
+            filter.from = from;
+        }
+        if (query.to !== undefined && query.to !== "") {
+            const to = Date.parse(query.to);
+            if (!Number.isFinite(to)) {
+                return reply.code(400).send({ error: "invalid_to" });
+            }
+            filter.to = to;
+        }
+        if (query.actor?.trim()) {
+            filter.actor = query.actor.trim();
+        }
+        if (query.action?.trim()) {
+            const action = query.action.trim();
+            if (!(0, audit_store_1.isAuditAction)(action)) {
+                return reply.code(400).send({ error: "invalid_action" });
+            }
+            filter.action = action;
+        }
+        const events = audit.list(filter).map((event) => ({
             id: event.id,
             actor: event.actorUsername,
             action: event.action,
@@ -105,7 +139,11 @@ function registerAdminRoutes(app, deps) {
             detail: event.detail,
             createdAt: new Date(event.createdAt).toISOString(),
         }));
-        return { events };
+        return {
+            events,
+            catalog: audit_store_1.AUDIT_ACTION_DEFS,
+            enabledActions: config.auditEnabledActions,
+        };
     });
     app.get("/api/admin/settings", async (request, reply) => {
         if (!requireAdmin(request, reply))
