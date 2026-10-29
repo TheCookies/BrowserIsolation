@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "start:worker": "node dist/worker-main.js",
-    "test": "tsx --test test/config.test.ts test/local-auth.test.ts test/session-store.test.ts test/auth.test.ts test/change-password.test.ts test/browser-sessions.test.ts test/geometry.test.ts test/access-control.test.ts test/admin.test.ts test/admin-volumes.test.ts test/audit.test.ts test/lifecycle.test.ts test/policy-tar.test.ts test/identity.test.ts test/neko-browsers.test.ts test/settings.test.ts test/workers.test.ts test/worker-auth.test.ts test/host-metrics.test.ts test/saml.test.ts test/integration.test.ts"
+    "test": "tsx --test test/config.test.ts test/local-auth.test.ts test/session-store.test.ts test/auth.test.ts test/change-password.test.ts test/browser-sessions.test.ts test/geometry.test.ts test/access-control.test.ts test/admin.test.ts test/admin-volumes.test.ts test/audit.test.ts test/lifecycle.test.ts test/policy-tar.test.ts test/identity.test.ts test/neko-browsers.test.ts test/settings.test.ts test/workers.test.ts test/worker-auth.test.ts test/host-metrics.test.ts test/saml.test.ts test/integration.test.ts test/version.test.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

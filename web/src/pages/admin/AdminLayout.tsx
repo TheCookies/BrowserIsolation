@@ -11,6 +11,7 @@ const SUBNAV: Array<{ to: string; label: string }> = [
   { to: "/admin/browsers", label: "Browsers" },
   { to: "/admin/settings", label: "Settings" },
   { to: "/admin/audit", label: "Audit" },
+  { to: "/admin/about", label: "About" },
 ];
 
 export function AdminLayout({

@@ -404,6 +404,34 @@ test("admin audit supports filters and respects enabled-action settings", async 
   }
 });
 
+test("admin about includes a version; users cannot read it", async () => {
+  const harness = await buildHarness();
+  try {
+    const user = await loginAs(harness.app, "gus");
+    const denied = await harness.app.inject({
+      method: "GET",
+      url: "/api/admin/about",
+      headers: { cookie: user.cookie },
+    });
+    assert.equal(denied.statusCode, 403);
+
+    const admin = await loginAs(harness.app, "ada");
+    const about = await harness.app.inject({
+      method: "GET",
+      url: "/api/admin/about",
+      headers: { cookie: admin.cookie },
+    });
+    assert.equal(about.statusCode, 200);
+    const body = about.json() as { version: string; gitShaShort: string; name: string };
+    assert.equal(body.name, "Browser Isolation");
+    assert.equal(typeof body.version, "string");
+    assert.ok(body.version.length > 0);
+    assert.equal(typeof body.gitShaShort, "string");
+  } finally {
+    await harness.close();
+  }
+});
+
 test("account named admin without admin role is still forbidden", async () => {
   const harness = await buildHarness();
   try {

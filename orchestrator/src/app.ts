@@ -26,6 +26,7 @@ import { registerBrandingRoutes } from "./routes/branding";
 import type { SettingsStore } from "./settings-store";
 import type { UserPreferencesStore } from "./user-preferences";
 import type { ViewerTracker } from "./viewer-tracker";
+import { getAppVersion } from "./version";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -152,7 +153,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     return payload;
   });
 
-  app.get("/api/health", async () => ({ ok: true }));
+  app.get("/api/health", async () => {
+    const ver = getAppVersion();
+    return { ok: true, version: ver.version, gitSha: ver.gitShaShort };
+  });
   registerAuthRoutes(app, deps);
   registerBrandingRoutes(app, deps);
   registerPreferenceRoutes(app, deps);

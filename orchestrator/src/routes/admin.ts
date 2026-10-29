@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { AUDIT_ACTION_DEFS, isAuditAction, type AuditListFilter } from "../audit-store";
 import type { AppDeps } from "../app";
 import type { BrowserType } from "../config";
+import { getAboutInfo } from "../version";
 
 export type AdminBrowserSession = {
   id: string;
@@ -184,6 +185,11 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AppDeps): void {
       catalog: AUDIT_ACTION_DEFS,
       enabledActions: config.auditEnabledActions,
     };
+  });
+
+  app.get("/api/admin/about", async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    return getAboutInfo(config);
   });
 
   app.get("/api/admin/settings", async (request, reply) => {

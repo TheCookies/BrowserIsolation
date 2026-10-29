@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { getMe, logout, type Me } from "./api";
 import { AdminLayout } from "./pages/Admin";
+import { AboutPage } from "./pages/admin/AboutPage";
 import { AuditPage } from "./pages/admin/AuditPage";
 import { BrowsersPage } from "./pages/admin/BrowsersPage";
 import { SessionsPage } from "./pages/admin/SessionsPage";
@@ -98,6 +99,7 @@ export function App() {
         <Route path="browsers" element={<BrowsersPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="audit" element={<AuditPage />} />
+        <Route path="about" element={<AboutPage />} />
         <Route path="*" element={<Navigate to="/admin/sessions" replace />} />
       </Route>
       <Route path="*" element={<Navigate to={me ? "/" : "/login"} replace />} />

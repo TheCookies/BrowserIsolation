@@ -236,6 +236,38 @@ export async function changePassword(
   );
 }
 
+export type AdminAbout = {
+  name: string;
+  siteName: string;
+  version: string;
+  gitSha: string;
+  gitShaShort: string;
+  gitCommitTime: string;
+  builtAt: string;
+  image: string;
+  repository: string;
+  commitUrl: string | null;
+  node: string;
+  platform: string;
+  role: string;
+  publicIp: string;
+  port: number;
+  publicBaseUrl: string;
+  databasePath: string;
+  profileDataDir: string;
+  persistProfilesEnabled: boolean;
+  localWorkerEnabled: boolean;
+  browserNetworkMode: string;
+  webrtcPortRange: string;
+  enabledBrowsers: string[];
+  cookieSecure: boolean;
+  trustProxy: boolean;
+};
+
+export function getAdminAbout(): Promise<AdminAbout> {
+  return request("/api/admin/about");
+}
+
 export function getAdminSessions(): Promise<{ sessions: AdminBrowserSession[] }> {
   return request("/api/admin/sessions");
 }

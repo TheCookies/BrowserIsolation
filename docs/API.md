@@ -17,7 +17,7 @@ Base URL examples assume the portal on `http://localhost:8080`.
 | CSRF | Header `X-CSRF-Token` on `POST`/`PUT`/`PATCH`/`DELETE` under `/api/*` |
 | CSRF exempt | `POST /api/auth/saml/acs`, `POST /api/workers/enroll` |
 | Errors | JSON `{ "error": "<code>" }` with appropriate HTTP status |
-| Health | `GET /api/health` → `{ "ok": true }` (no auth) |
+| Health | `GET /api/health` → `{ "ok": true, "version", "gitSha" }` (no auth) |
 
 CSRF sources:
 
@@ -111,6 +111,14 @@ All routes require `role === "admin"` unless noted.
 | POST | `/api/admin/sessions/:sessionId/join` | Yes | Issue access (audited) |
 | DELETE | `/api/admin/sessions/:sessionId` | Yes | Terminate |
 | GET | `/api/admin/audit` | — | Recent audit events |
+
+### About
+
+| Method | Path | CSRF | Purpose |
+| --- | --- | --- | --- |
+| GET | `/api/admin/about` | — | Build version (from the published image), commit, host paths |
+
+Version is `YYYY.MM.DD-<shortsha>`, baked into the image by **Publish image** on push to `main`.
 
 ### Settings
 

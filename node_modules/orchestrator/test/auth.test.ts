@@ -312,7 +312,11 @@ test("the portal shell is served for pages and the API stays JSON", async () => 
   try {
     const health = await ctx.app.inject({ method: "GET", url: "/api/health" });
     assert.equal(health.statusCode, 200);
-    assert.deepEqual(health.json(), { ok: true });
+    const healthBody = health.json() as { ok: boolean; version: string; gitSha: string };
+    assert.equal(healthBody.ok, true);
+    assert.equal(typeof healthBody.version, "string");
+    assert.ok(healthBody.version.length > 0);
+    assert.equal(typeof healthBody.gitSha, "string");
 
     const home = await ctx.app.inject({ method: "GET", url: "/" });
     assert.equal(home.statusCode, 200);

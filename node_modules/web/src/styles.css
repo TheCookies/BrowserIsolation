@@ -2654,6 +2654,63 @@ td.empty {
   white-space: nowrap;
 }
 
+.about-version {
+  margin: 0 0 1.25rem;
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, var(--accent-soft), var(--surface));
+}
+
+.about-version .eyebrow {
+  margin: 0 0 0.2rem;
+}
+
+.about-version-value {
+  margin: 0 0 0.35rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.7rem, 3vw, 2.15rem);
+  font-weight: 650;
+  letter-spacing: -0.04em;
+  line-height: 1.15;
+  color: var(--ink);
+}
+
+.about-list {
+  display: grid;
+  gap: 0;
+  margin: 0 0 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.about-row {
+  display: grid;
+  grid-template-columns: minmax(9rem, 14rem) minmax(0, 1fr);
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.7rem 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.about-row:first-child {
+  border-top: 0;
+}
+
+.about-row dt {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.about-row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .admin-subhead {
   margin: 1.1rem 0 0.6rem;
   font-size: 1rem;
@@ -2982,6 +3039,16 @@ html[data-theme="dark"] .persist-toggle.on,
 html[data-theme="dark"] .browser-check.on,
 html[data-theme="dark"] .profile-theme-toggle.on {
   background: linear-gradient(180deg, rgba(43, 179, 163, 0.16), var(--surface));
+}
+
+html[data-theme="dark"] .about-version,
+html[data-theme="dark"] .about-list {
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+html[data-theme="dark"] .about-row {
+  border-top-color: var(--line);
 }
 
 html[data-theme="dark"] .modal-panel-sso-footer,
