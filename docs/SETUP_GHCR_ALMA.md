@@ -38,13 +38,15 @@ On first start, if `/config/.env` is missing, the **entrypoint** creates it (ran
 Workflow: [`.github/workflows/publish-image.yml`](../.github/workflows/publish-image.yml)  
 Builds [`Dockerfile`](../Dockerfile) (`node:26-bookworm-slim`) and pushes `ghcr.io/thecookies/browserisolation:latest` plus a short SHA tag.
 
-## 4. Create a pull token (only if you are **not** using the install scripts)
+## 4. Make the package public (for `curl | sudo bash`)
 
-Install scripts for this deployment already contain GHCR credentials. For a manual/custom host:
+A public repo does **not** make GHCR public. Open **Packages → browserisolation → Package settings → Change visibility → Public**.
 
-1. https://github.com/settings/tokens → **Generate new token (classic)**
-2. Check **`read:packages`**
-3. Copy the `ghp_...` token
+If you keep the package private, create a classic PAT with **`read:packages`** and pass it:
+
+```bash
+GHCR_USER=YourGitHubUsername GHCR_TOKEN=ghp_... sudo -E bash install-orchestrator.sh
+```
 
 Image name:
 

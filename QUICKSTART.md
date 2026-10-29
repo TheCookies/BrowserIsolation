@@ -12,6 +12,19 @@ curl -fsSL https://raw.githubusercontent.com/TheCookies/BrowserIsolation/main/qu
 
 That URL works after this file is on the `main` branch. Alma, RHEL, Debian, and Ubuntu are fine. The script prints the URL and the admin password when it finishes.
 
+**The GitHub repo being public is not enough.** The container image is a separate GHCR package and starts **private**. One-time:
+
+1. Open the repo on GitHub → right sidebar **Packages** → **browserisolation**
+2. **Package settings** → **Change visibility** → **Public**
+3. On the VM, drop any leftover GHCR login, then re-run the curl command:
+
+```bash
+sudo podman logout ghcr.io
+curl -fsSL https://raw.githubusercontent.com/TheCookies/BrowserIsolation/main/quickstart.sh | sudo bash
+```
+
+A `403 Forbidden` on `ghcr.io` is almost always a private package or a leftover/revoked login, not the repo visibility.
+
 | | |
 | --- | --- |
 | URL | `http://THIS_VM_IP:8080` |

@@ -22,9 +22,10 @@ AUTH_FILE="${AUTH_FILE:-/etc/containers/auth.json}"
 WORKER_PORT="${WORKER_PORT:-8090}"
 WEBRTC_PORT_RANGE="${WEBRTC_PORT_RANGE:-52000-52099}"
 
-# Hardcoded credentials for this deployment.
-GHCR_USER="TheCookies"
-GHCR_TOKEN="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"
+# Optional GHCR login. Public packages pull without credentials.
+# Private package: GHCR_USER=YourGitHubUsername GHCR_TOKEN=ghp_... sudo -E bash install-worker.sh
+GHCR_USER="${GHCR_USER:-}"
+GHCR_TOKEN="${GHCR_TOKEN:-}"
 WORKER_ENROLL_TOKEN="rbi_enroll_k9m2Vx7Qp4Hs8nWc3YfL6tZa1Bd0EgR5"
 
 # Browser images are NOT pulled here. The orchestrator pulls enabled browsers
@@ -32,6 +33,41 @@ WORKER_ENROLL_TOKEN="rbi_enroll_k9m2Vx7Qp4Hs8nWc3YfL6tZa1Bd0EgR5"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 need_root() { [[ ${EUID:-$(id -u)} -eq 0 ]] || die "Run as root (sudo)."; }
+
+ghcr_pull() {
+  mkdir -p "$(dirname "${AUTH_FILE}")" "${CONFIG_DIR}"
+  if [[ -n "${GHCR_TOKEN}" ]]; then
+    [[ -n "${GHCR_USER}" ]] || die "GHCR_TOKEN is set but GHCR_USER is empty"
+    echo "==> Logging in to ghcr.io as ${GHCR_USER}"
+    umask 077
+    echo "${GHCR_TOKEN}" | podman login ghcr.io -u "${GHCR_USER}" \
+      --authfile "${AUTH_FILE}" --password-stdin
+    chmod 600 "${AUTH_FILE}"
+    echo "==> Pulling ${IMAGE}"
+    podman pull --authfile "${AUTH_FILE}" "${IMAGE}" \
+      || die "failed to pull ${IMAGE} (check GHCR_USER / GHCR_TOKEN and package access)"
+    return 0
+  fi
+  echo "==> Pulling ${IMAGE}"
+  podman logout ghcr.io --authfile "${AUTH_FILE}" >/dev/null 2>&1 || true
+  podman logout ghcr.io >/dev/null 2>&1 || true
+  if podman pull "${IMAGE}"; then
+    return 0
+  fi
+  cat >&2 <<'MSG'
+ERROR: failed to pull the image without GHCR login.
+
+A public GitHub repo does not make the container package public.
+Make the package public:
+
+  GitHub → Packages → browserisolation → Package settings → Change visibility → Public
+
+Or pull with a classic PAT that has read:packages:
+
+  GHCR_USER=YourGitHubUsername GHCR_TOKEN=ghp_... sudo -E bash install-worker.sh
+MSG
+  exit 1
+}
 
 detect_ip() {
   local ip=""
@@ -177,15 +213,7 @@ command -v curl >/dev/null 2>&1 || die "curl is required"
 
 ensure_podman_socket
 
-echo "==> Logging in to ghcr.io as ${GHCR_USER}"
-umask 077
-mkdir -p "$(dirname "${AUTH_FILE}")" "${CONFIG_DIR}"
-echo "${GHCR_TOKEN}" | podman login ghcr.io -u "${GHCR_USER}" \
-  --authfile "${AUTH_FILE}" --password-stdin
-chmod 600 "${AUTH_FILE}"
-
-echo "==> Pulling ${IMAGE}"
-podman pull --authfile "${AUTH_FILE}" "${IMAGE}" || die "failed to pull ${IMAGE}"
+ghcr_pull
 
 PUBLIC_IP="$(detect_ip)"
 HOSTNAME_SHORT="$(hostname -s 2>/dev/null || hostname || true)"
@@ -237,7 +265,6 @@ podman run -d \
   --network=host \
   --privileged \
   --security-opt label=disable \
-  --authfile "${AUTH_FILE}" \
   -v "${CONFIG_DIR}:/config:Z" \
   -v /run/podman/podman.sock:/run/podman/podman.sock \
   -e DOCKER_SOCKET=/run/podman/podman.sock \

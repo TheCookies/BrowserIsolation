@@ -23,12 +23,47 @@ AUTH_FILE="${AUTH_FILE:-/etc/containers/auth.json}"
 WORKER_PORT_DEFAULT=8090
 WEBRTC_PORT_RANGE_DEFAULT="52000-52099"
 
-# Same GHCR credentials as install-worker.sh for this deployment.
-GHCR_USER="TheCookies"
-GHCR_TOKEN="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"
+# Optional GHCR login. Public packages pull without credentials.
+GHCR_USER="${GHCR_USER:-}"
+GHCR_TOKEN="${GHCR_TOKEN:-}"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 need_root() { [[ ${EUID:-$(id -u)} -eq 0 ]] || die "Run as root (sudo)."; }
+
+ghcr_pull() {
+  mkdir -p "$(dirname "${AUTH_FILE}")"
+  if [[ -n "${GHCR_TOKEN}" ]]; then
+    [[ -n "${GHCR_USER}" ]] || die "GHCR_TOKEN is set but GHCR_USER is empty"
+    echo "==> Logging in to ghcr.io as ${GHCR_USER}"
+    umask 077
+    echo "${GHCR_TOKEN}" | podman login ghcr.io -u "${GHCR_USER}" \
+      --authfile "${AUTH_FILE}" --password-stdin
+    chmod 600 "${AUTH_FILE}"
+    echo "==> Pulling ${IMAGE}"
+    podman pull --authfile "${AUTH_FILE}" "${IMAGE}" \
+      || die "failed to pull ${IMAGE} (check GHCR_USER / GHCR_TOKEN and package access)"
+    return 0
+  fi
+  echo "==> Pulling ${IMAGE}"
+  podman logout ghcr.io --authfile "${AUTH_FILE}" >/dev/null 2>&1 || true
+  podman logout ghcr.io >/dev/null 2>&1 || true
+  if podman pull "${IMAGE}"; then
+    return 0
+  fi
+  cat >&2 <<'MSG'
+ERROR: failed to pull the image without GHCR login.
+
+A public GitHub repo does not make the container package public.
+Make the package public:
+
+  GitHub → Packages → browserisolation → Package settings → Change visibility → Public
+
+Or pull with a classic PAT that has read:packages:
+
+  GHCR_USER=YourGitHubUsername GHCR_TOKEN=ghp_... sudo -E bash update-worker.sh
+MSG
+  exit 1
+}
 
 env_get() {
   local key="$1"
@@ -191,15 +226,7 @@ fi
 before_id="$(image_short_id "${IMAGE}")"
 
 if [[ "${do_pull}" -eq 1 ]]; then
-  echo "==> Logging in to ghcr.io as ${GHCR_USER}"
-  umask 077
-  mkdir -p "$(dirname "${AUTH_FILE}")"
-  echo "${GHCR_TOKEN}" | podman login ghcr.io -u "${GHCR_USER}" \
-    --authfile "${AUTH_FILE}" --password-stdin
-  chmod 600 "${AUTH_FILE}"
-
-  echo "==> Pulling ${IMAGE}"
-  podman pull --authfile "${AUTH_FILE}" "${IMAGE}" || die "failed to pull ${IMAGE}"
+  ghcr_pull
 else
   echo "==> Skipping image pull (--no-pull)"
   podman image exists "${IMAGE}" || die "image not present locally: ${IMAGE} (omit --no-pull, or set IMAGE=…)"
@@ -224,7 +251,6 @@ podman run -d \
   --network=host \
   --privileged \
   --security-opt label=disable \
-  --authfile "${AUTH_FILE}" \
   -v "${CONFIG_DIR}:/config:Z" \
   -v /run/podman/podman.sock:/run/podman/podman.sock \
   -e DOCKER_SOCKET=/run/podman/podman.sock \

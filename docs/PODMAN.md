@@ -3,7 +3,7 @@
 **Start here (Alma blank-box):** **[SETUP_GHCR_ALMA.md](SETUP_GHCR_ALMA.md)**  
 **Installer index:** **[../deploy/podman/README.md](../deploy/podman/README.md)**
 
-Run Browser Isolation with **Podman**, publish the app image from GitHub Actions to a **private** GHCR package, and re-run the install script (or recreate the container) to pick up `:latest`.
+Run Browser Isolation with **Podman**, publish the app image from GitHub Actions to GHCR, and re-run the install script (or recreate the container) to pick up `:latest`.
 
 Your private GitHub **code** repo is not a container registry. Pulls use:
 
@@ -24,7 +24,7 @@ The orchestrator still talks to a Docker-compatible API (dockerode). On Podman t
 | Piece | Role |
 | --- | --- |
 | GitHub Actions workflow | Builds [`Dockerfile`](../Dockerfile) on every push to `main` and pushes `:latest` + short SHA tags |
-| GHCR package | Private image store for remote hosts |
+| GHCR package | Image store for remote hosts (make it **Public** for `curl | sudo bash`) |
 | Install scripts | `install-orchestrator.sh` / `install-worker.sh` (canonical Alma path) |
 | Container entrypoint | Create-once `/config/.env` if missing, then start portal or worker via `RBI_ROLE` |
 | Host mounts | `/config`, `rbi-data` (orchestrator), `podman.sock`; `--network=host` |
@@ -67,15 +67,16 @@ If it fails on permissions, check **Settings → Actions → General → Workflo
 1. Open the repo → right sidebar **Packages**, or your org/user → **Packages**.
 2. Open **browserisolation**.
 3. Confirm the image URI is `ghcr.io/thecookies/browserisolation`.
-4. Keep visibility **Private**.
+4. Set visibility **Public** if VMs should pull without a token (`Package settings` → `Change visibility`). A public GitHub **repo** does not make this package public.
 
-### 4. Create a pull token (manual hosts only)
+### 4. Create a pull token (private packages only)
 
-Install scripts for this deployment already include GHCR login. For a custom machine:
+Install scripts pull anonymously when the package is public. For a private package:
 
 1. GitHub → **Settings → Developer settings → Personal access tokens**.
 2. Classic token with at least `read:packages`.
-3. Store it only on the remote host (or a secret manager). Do not commit it.
+3. Pass it at install time: `GHCR_USER=… GHCR_TOKEN=… sudo -E bash install-orchestrator.sh`
+4. Do not commit the token.
 
 ---
 
@@ -149,7 +150,7 @@ podman compose --profile worker up -d worker
 
 | Symptom | Likely fix |
 | --- | --- |
-| `denied` / `unauthorized` on pull | `podman login ghcr.io` with `read:packages`; use `sudo` + `--authfile` if the service runs rootful |
+| `denied` / `unauthorized` / `403` on `ghcr.io` | Make the **package** public (not just the repo), or `GHCR_USER` + `GHCR_TOKEN` with `read:packages`. Run `sudo podman logout ghcr.io` to drop a revoked login |
 | Package not found after first Action | Wait for a green **Publish image** run; check org package visibility |
 | Orchestrator up but cannot create browsers | `podman.socket` not running; socket not mounted at `/run/podman/podman.sock`; SELinux — installers use `--privileged` + `label=disable` |
 | WebRTC fails remotely | Wrong `PUBLIC_IP`; firewall blocking `52000-52099` UDP/TCP; need `BROWSER_NETWORK_MODE=host` on Alma |
