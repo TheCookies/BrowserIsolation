@@ -45,6 +45,7 @@ export function testConfig(partial?: Partial<Config>): Config {
     dockerSocketPath: "/var/run/docker.sock",
     nekoPoliciesDir: "/tmp/neko-policies-unused",
     persistProfilesEnabled: true,
+    profileDataDir: "",
     allowClipboard: false,
     allowDownloads: false,
     idleTimeoutMinutes: 60,

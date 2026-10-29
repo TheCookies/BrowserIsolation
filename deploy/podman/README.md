@@ -12,7 +12,8 @@ install-orchestrator.sh
   → /etc/browser-isolation/.env (once)
   → podman run --network=host --privileged
        -v /etc/browser-isolation:/config
-       -v rbi-data:/data
+       -v /var/lib/browser-isolation:/var/lib/browser-isolation
+       -v /var/lib/browser-isolation/data:/data
        -v /run/podman/podman.sock:/run/podman/podman.sock
        -e RBI_ROLE=orchestrator
   → entrypoint.sh → dist/index.js
@@ -36,7 +37,7 @@ sudo bash install-orchestrator.sh
 - Starts `browser-isolation` with host network + Podman socket  
 - Default first login: `admin` / `BrowserIsolation-Admin1` (also in `/etc/browser-isolation/admin-password.txt`)  
 
-Update later: run the same script again (keeps `.env`).
+Update later: the installer enables `browser-isolation-update.timer` (every 5 minutes). Push to `main`, wait for **Publish image**, and the host pulls `:latest` and recreates the container. `.env` is kept. Force it with `sudo systemctl start browser-isolation-update.service`.
 
 ## Worker
 
@@ -85,6 +86,7 @@ sudo podman run --rm --entrypoint cat \
 | --- | --- |
 | `install-orchestrator.sh` | Blank-box orchestrator install/update |
 | `install-worker.sh` | Blank-box worker install |
+| `auto-update.sh` | Host updater + `--install-timer` (GHCR `:latest` every 5 minutes) |
 | `update-worker.sh` | Pull latest + recreate worker (keeps `.env`) |
 | `install.sh` | Alias → `install-orchestrator.sh` |
 | `entrypoint.sh` | Container entrypoint (baked into image; respects `RBI_ROLE`) |

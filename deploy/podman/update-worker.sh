@@ -22,6 +22,8 @@ ENV_FILE="${CONFIG_DIR}/.env"
 AUTH_FILE="${AUTH_FILE:-/etc/containers/auth.json}"
 WORKER_PORT_DEFAULT=8090
 WEBRTC_PORT_RANGE_DEFAULT="52000-52099"
+REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/TheCookies/BrowserIsolation/main}"
+HOST_STATE="${HOST_STATE:-/var/lib/browser-isolation}"
 
 # Optional GHCR login. Public packages pull without credentials.
 GHCR_USER="${GHCR_USER:-}"
@@ -127,6 +129,38 @@ free_port() {
   fi
 }
 
+install_auto_update() {
+  if [[ "${DISABLE_AUTO_UPDATE:-}" == "1" ]]; then
+    echo "==> Skipping auto-update timer (DISABLE_AUTO_UPDATE=1)"
+    return 0
+  fi
+  if ! command -v systemctl >/dev/null 2>&1; then
+    echo "WARN: systemd not found; auto-update timer not installed"
+    return 0
+  fi
+  local tmp src=""
+  local here
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
+  if [[ -n "${here}" && -f "${here}/auto-update.sh" ]]; then
+    src="${here}/auto-update.sh"
+  else
+    tmp="$(mktemp)"
+    if podman run --rm --entrypoint cat "${IMAGE}" /deploy/auto-update.sh > "${tmp}" 2>/dev/null \
+      && grep -q "browser-isolation-update.timer" "${tmp}"; then
+      src="${tmp}"
+    elif curl -fsSL "${REPO_RAW}/deploy/podman/auto-update.sh" -o "${tmp}" 2>/dev/null \
+      && grep -q "browser-isolation-update.timer" "${tmp}"; then
+      src="${tmp}"
+    else
+      rm -f "${tmp}"
+      echo "WARN: could not fetch auto-update.sh; timer not installed"
+      return 0
+    fi
+  fi
+  bash "${src}" --install-timer
+  [[ -n "${tmp:-}" && -f "${tmp:-}" ]] && rm -f "${tmp}"
+}
+
 open_firewall_ports() {
   local ports=("$@")
   if ! command -v firewall-cmd >/dev/null 2>&1; then
@@ -210,6 +244,8 @@ WORKER_BASE_URL="$(env_get WORKER_BASE_URL "${ENV_FILE}")"
 WEBRTC_PORT_RANGE="$(env_get WEBRTC_PORT_RANGE "${ENV_FILE}")"
 WEBRTC_PORT_RANGE="${WEBRTC_PORT_RANGE:-${WEBRTC_PORT_RANGE_DEFAULT}}"
 [[ -n "${WORKER_BASE_URL}" ]] || WORKER_BASE_URL="http://${PUBLIC_IP:-127.0.0.1}:${WORKER_PORT}"
+mkdir -p "${HOST_STATE}/profiles"
+env_set PROFILE_DATA_DIR "${HOST_STATE}/profiles" "${ENV_FILE}"
 
 command -v podman >/dev/null 2>&1 || die "podman not found — run install-worker.sh first"
 command -v curl >/dev/null 2>&1 || die "curl is required"
@@ -248,10 +284,12 @@ echo "==> Starting ${NAME} (host network, existing ${ENV_FILE})"
 podman run -d \
   --name "${NAME}" \
   --restart=always \
+  --label io.containers.autoupdate=registry \
   --network=host \
   --privileged \
   --security-opt label=disable \
   -v "${CONFIG_DIR}:/config:Z" \
+  -v "${HOST_STATE}:/var/lib/browser-isolation:Z" \
   -v /run/podman/podman.sock:/run/podman/podman.sock \
   -e DOCKER_SOCKET=/run/podman/podman.sock \
   -e RBI_ROLE=worker \
@@ -297,6 +335,8 @@ else
   echo "WARN: skipping enroll (ORCHESTRATOR_URL / WORKER_ID / PUBLIC_IP / WORKER_ENROLL_TOKEN incomplete in ${ENV_FILE})" >&2
   ENABLED_HINT=""
 fi
+
+install_auto_update
 
 echo
 echo "DONE. Worker ${WORKER_ID:-unknown} updated."

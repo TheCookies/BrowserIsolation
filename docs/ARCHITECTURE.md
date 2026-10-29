@@ -168,7 +168,7 @@ Admin routes under `/admin/*` require `me.role === "admin"` in the SPA; the API 
 
 ## Data model (SQLite)
 
-File: `DATABASE_PATH` (Compose / Alma: `/data/rbi.sqlite` on volume `rbi-data`).
+File: `DATABASE_PATH` (Alma: `/var/lib/browser-isolation/data/rbi.sqlite`; Compose: `/data/rbi.sqlite` on volume `rbi-data`).
 
 | Table | Purpose |
 | --- | --- |

@@ -39,6 +39,7 @@ function baseConfig(dir: string): Config {
     dockerSocketPath: "/var/run/docker.sock",
     nekoPoliciesDir: "/tmp/neko-policies-unused",
     persistProfilesEnabled: true,
+    profileDataDir: "",
     allowClipboard: false,
     allowDownloads: false,
     localWorkerEnabled: true,

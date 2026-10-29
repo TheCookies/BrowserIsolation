@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
 import {
   localSubjectId,
@@ -7,6 +8,7 @@ import {
   profileVolumeName,
   samlSubjectId,
 } from "../src/auth/identity";
+import { profileHostDir } from "../src/docker/profile-paths";
 
 test("local and saml subject ids use stable prefixes", () => {
   assert.equal(localSubjectId("alice"), "local:alice");
@@ -28,4 +30,13 @@ test("profile volume names are path-safe and per-browser", () => {
     browser: "google-chrome",
   });
   assert.equal(parseProfileVolumeName("rbi-data"), null);
+});
+
+test("persistent profiles live under PROFILE_DATA_DIR on the host", () => {
+  const subject = localSubjectId("alice");
+  const key = profileStorageKey(subject);
+  assert.equal(
+    profileHostDir("/var/lib/browser-isolation/profiles", subject, "google-chrome"),
+    path.join("/var/lib/browser-isolation/profiles", key, "google-chrome"),
+  );
 });

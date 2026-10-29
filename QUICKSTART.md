@@ -33,7 +33,25 @@ A `403 Forbidden` on `ghcr.io` is almost always a private package or a leftover/
 
 From another machine, allow **TCP 8080** and **TCP + UDP 52000–52099**. A cloud security group is separate from the firewall rules the script adds on the VM.
 
-Run the same command again later to pull a newer image and recreate the container. An existing `/etc/browser-isolation/.env` is kept.
+After that, **do not re-run the curl command for routine updates.** The installer enables a systemd timer that pulls `ghcr.io/thecookies/browserisolation:latest` every 5 minutes. Push to `main`, wait for the **Publish image** Action to go green, and the VM recreates the portal on the next tick. `/etc/browser-isolation/.env` is kept.
+
+```bash
+systemctl status browser-isolation-update.timer
+sudo systemctl start browser-isolation-update.service   # apply now
+journalctl -u browser-isolation-update.service -n 50
+```
+
+The portal restarts when a new image lands; an in-flight browser session may drop. Turn it off with `sudo systemctl disable --now browser-isolation-update.timer`.
+
+**Persistent browser data** (cookies, bookmarks, settings) is stored on the VM disk, not inside the browser container:
+
+| What | Where |
+| --- | --- |
+| Portal config | `/etc/browser-isolation/.env` |
+| Users, settings, branding | `/var/lib/browser-isolation/data` |
+| Browser profiles (when **Persist browser settings** is on) | `/var/lib/browser-isolation/profiles` |
+
+Turn on **Dashboard → Persist browser settings** per user. Disconnect, log out, or an auto-update does not wipe that folder.
 
 ## Laptop (Docker Desktop)
 

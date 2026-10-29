@@ -61,6 +61,12 @@ export type Config = {
   nekoPoliciesDir: string;
   /** When false, users cannot enable persistent browser profiles. */
   persistProfilesEnabled: boolean;
+  /**
+   * Host directory for persistent browser profiles. Empty = named Podman/Docker
+   * volumes. When set (Alma install: `/var/lib/browser-isolation/profiles`),
+   * profiles are bind-mounted from this path so they live on the HDD.
+   */
+  profileDataDir: string;
   /** When false, clipboard sync to/from the isolated browser is blocked. */
   allowClipboard: boolean;
   /** When false, browser downloads and Neko file transfer are blocked. */
@@ -272,6 +278,9 @@ export function loadConfig(env: NodeJS.ProcessEnv, baseDir: string): Config {
       env.PERSIST_PROFILES_ENABLED,
       true,
     ),
+    profileDataDir: env.PROFILE_DATA_DIR?.trim()
+      ? resolvePath(baseDir, env.PROFILE_DATA_DIR.trim())
+      : "",
     allowClipboard: readBool("ALLOW_CLIPBOARD", env.ALLOW_CLIPBOARD, false),
     allowDownloads: readBool("ALLOW_DOWNLOADS", env.ALLOW_DOWNLOADS, false),
     idleTimeoutMinutes: readInt("IDLE_TIMEOUT_MINUTES", env.IDLE_TIMEOUT_MINUTES, 60, 1, 24 * 60),

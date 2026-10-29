@@ -18,9 +18,10 @@ NAME="browser-isolation"
 CONFIG_DIR="/etc/browser-isolation"
 ENV_FILE="${CONFIG_DIR}/.env"
 AUTH_FILE="${AUTH_FILE:-/etc/containers/auth.json}"
-DATA_VOLUME="rbi-data"
+HOST_STATE="${HOST_STATE:-/var/lib/browser-isolation}"
 PORT="${PORT:-8080}"
 WEBRTC_PORT_RANGE="${WEBRTC_PORT_RANGE:-52000-52099}"
+REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/TheCookies/BrowserIsolation/main}"
 
 # Optional GHCR login. Public packages pull without credentials.
 # Private package: GHCR_USER=YourGitHubUsername GHCR_TOKEN=ghp_... sudo -E bash install-orchestrator.sh
@@ -113,6 +114,39 @@ env_set() {
   fi
 }
 
+copy_volume_into() {
+  local volume="$1"
+  local dest="$2"
+  mkdir -p "${dest}"
+  podman run --rm --entrypoint cp \
+    -v "${volume}:/from:ro" \
+    -v "${dest}:/to:Z" \
+    "${IMAGE}" -a /from/. /to/
+}
+
+ensure_host_state() {
+  echo "==> Host data on ${HOST_STATE} (survives container recreate)"
+  mkdir -p "${HOST_STATE}/data" "${HOST_STATE}/profiles"
+  if [[ ! -f "${HOST_STATE}/data/rbi.sqlite" ]] && podman volume inspect rbi-data >/dev/null 2>&1; then
+    echo "==> Copying existing named volume rbi-data to ${HOST_STATE}/data"
+    copy_volume_into rbi-data "${HOST_STATE}/data" \
+      || echo "WARN: could not copy rbi-data; ${HOST_STATE}/data may start empty"
+  fi
+  local vol key browser dest
+  while IFS= read -r vol; do
+    [[ "${vol}" =~ ^rbi-profile-([a-f0-9]{32})-(.+)$ ]] || continue
+    key="${BASH_REMATCH[1]}"
+    browser="${BASH_REMATCH[2]}"
+    dest="${HOST_STATE}/profiles/${key}/${browser}"
+    if [[ -d "${dest}" ]] && [[ -n "$(ls -A "${dest}" 2>/dev/null || true)" ]]; then
+      continue
+    fi
+    echo "==> Copying profile volume ${vol} to ${dest}"
+    copy_volume_into "${vol}" "${dest}" \
+      || echo "WARN: could not copy ${vol}"
+  done < <(podman volume ls -q 2>/dev/null || true)
+}
+
 ensure_podman_socket() {
   echo "==> Enabling podman.socket"
   if [[ -d /run/podman/podman.sock ]]; then
@@ -142,6 +176,38 @@ free_port() {
       kill -9 "${pid}" >/dev/null 2>&1 || true
     done
   fi
+}
+
+install_auto_update() {
+  if [[ "${DISABLE_AUTO_UPDATE:-}" == "1" ]]; then
+    echo "==> Skipping auto-update timer (DISABLE_AUTO_UPDATE=1)"
+    return 0
+  fi
+  if ! command -v systemctl >/dev/null 2>&1; then
+    echo "WARN: systemd not found; auto-update timer not installed"
+    return 0
+  fi
+  local tmp src=""
+  local here
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
+  if [[ -n "${here}" && -f "${here}/auto-update.sh" ]]; then
+    src="${here}/auto-update.sh"
+  else
+    tmp="$(mktemp)"
+    if podman run --rm --entrypoint cat "${IMAGE}" /deploy/auto-update.sh > "${tmp}" 2>/dev/null \
+      && grep -q "browser-isolation-update.timer" "${tmp}"; then
+      src="${tmp}"
+    elif curl -fsSL "${REPO_RAW}/deploy/podman/auto-update.sh" -o "${tmp}" 2>/dev/null \
+      && grep -q "browser-isolation-update.timer" "${tmp}"; then
+      src="${tmp}"
+    else
+      rm -f "${tmp}"
+      echo "WARN: could not fetch auto-update.sh; timer not installed"
+      return 0
+    fi
+  fi
+  bash "${src}" --install-timer
+  [[ -n "${tmp:-}" && -f "${tmp:-}" ]] && rm -f "${tmp}"
 }
 
 open_firewall_ports() {
@@ -190,6 +256,7 @@ command -v curl >/dev/null 2>&1 || die "curl is required"
 ensure_podman_socket
 
 ghcr_pull
+ensure_host_state
 
 PUBLIC_IP="${PUBLIC_IP:-}"
 EXISTING=0
@@ -204,6 +271,8 @@ if [[ -f "${ENV_FILE}" ]]; then
   env_set LOCAL_WORKER_ENABLED true "${ENV_FILE}"
   env_set BROWSER_NETWORK_MODE host "${ENV_FILE}"
   env_set PUBLIC_IP "${PUBLIC_IP}" "${ENV_FILE}"
+  env_set PROFILE_DATA_DIR "${HOST_STATE}/profiles" "${ENV_FILE}"
+  env_set DATABASE_PATH /data/rbi.sqlite "${ENV_FILE}"
 else
   PUBLIC_IP="$(detect_ip)"
   echo "==> Creating ${ENV_FILE} (PUBLIC_IP=${PUBLIC_IP})"
@@ -224,6 +293,7 @@ SAML_ENABLED=false
 ENABLED_BROWSERS=google-chrome,firefox,brave
 NEKO_IMAGE_TAG=latest
 PERSIST_PROFILES_ENABLED=true
+PROFILE_DATA_DIR=${HOST_STATE}/profiles
 ALLOW_CLIPBOARD=false
 ALLOW_DOWNLOADS=false
 LOCAL_WORKER_ENABLED=true
@@ -259,11 +329,13 @@ echo "==> Starting ${NAME} (host network)"
 podman run -d \
   --name "${NAME}" \
   --restart=always \
+  --label io.containers.autoupdate=registry \
   --network=host \
   --privileged \
   --security-opt label=disable \
   -v "${CONFIG_DIR}:/config:Z" \
-  -v "${DATA_VOLUME}:/data:Z" \
+  -v "${HOST_STATE}:/var/lib/browser-isolation:Z" \
+  -v "${HOST_STATE}/data:/data:Z" \
   -v /run/podman/podman.sock:/run/podman/podman.sock \
   -e DOCKER_SOCKET=/run/podman/podman.sock \
   -e RBI_ROLE=orchestrator \
@@ -273,6 +345,8 @@ open_firewall_ports \
   "${PORT}/tcp" \
   "52000-52099/tcp" \
   "52000-52099/udp"
+
+install_auto_update
 
 echo "==> Waiting for health"
 ok=0
@@ -294,8 +368,9 @@ if [[ "${ok}" -eq 1 ]]; then
     echo "Password also saved at: ${CONFIG_DIR}/admin-password.txt"
   fi
   echo
-  echo "Update later:"
-  echo "  sudo bash install-orchestrator.sh"
+  echo "Auto-update:  every 5 minutes after you push to main (GHCR :latest)"
+  echo "              systemctl status browser-isolation-update.timer"
+  echo "Update now:   sudo systemctl start browser-isolation-update.service"
   echo "Worker hosts:"
   echo "  sudo bash install-worker.sh"
   echo "  # prompt for this orchestrator IP/URL: ${PUBLIC_IP}"

@@ -64,6 +64,7 @@ function testConfig(dir: string, options?: { cookieSecure?: boolean; staticDir?:
     dockerSocketPath: "/var/run/docker.sock",
     nekoPoliciesDir: "/tmp/neko-policies-unused",
     persistProfilesEnabled: true,
+    profileDataDir: "",
     allowClipboard: false,
     allowDownloads: false,
     localWorkerEnabled: true,

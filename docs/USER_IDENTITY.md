@@ -46,17 +46,15 @@ API: `GET` / `PUT /api/preferences` with `{ persistProfile?, darkMode? }`.
 
 1. Admin enables the feature with `PERSIST_PROFILES_ENABLED=true` (default).
 2. Each user may opt in via **Dashboard → Persist browser settings** (`PUT /api/preferences`).
-3. On launch with persistence on, the orchestrator mounts a **named volume**:
+3. On launch with persistence on, the orchestrator bind-mounts a **host directory** (Alma/VM install) or a named volume (Compose):
 
    ```text
-   rbi-profile-<profileStorageKey>-<browserId>
+   /var/lib/browser-isolation/profiles/<profileStorageKey>/<browserId>
    ```
 
-   Examples (browser ids match `neko-browsers.ts`):
+   That path is on the machine’s HDD. Destroying the browser container, logging out, or auto-updating the portal does **not** delete it.
 
-   - `rbi-profile-<hash>-google-chrome`
-   - `rbi-profile-<hash>-firefox`
-   - `rbi-profile-<hash>-brave`
+   Compose without `PROFILE_DATA_DIR` still uses a named volume `rbi-profile-<hash>-<browserId>` (also on disk, under the engine’s volume store).
 
 4. Volume target paths inside Neko containers:
 
@@ -77,9 +75,13 @@ profile volume. Multi-host: volumes stick to the worker recorded in
 ### Inspecting volumes
 
 ```bash
+# Alma / VM installer
+ls /var/lib/browser-isolation/profiles
+ls /var/lib/browser-isolation/data          # portal SQLite + branding
+
+# Compose named volumes
 podman volume ls --filter label=rbi.managed=true
 podman volume inspect rbi-profile-<key>-google-chrome
-# Docker Engine: docker volume …
 ```
 
 Labels on each volume:

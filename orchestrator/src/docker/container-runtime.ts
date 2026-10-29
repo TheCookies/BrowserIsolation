@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import Docker from "dockerode";
 import { parseProfileVolumeName, profileStorageKey, profileVolumeName } from "../auth/identity";
@@ -7,7 +7,7 @@ import { imageForBrowser, policyMountForBrowser } from "../config";
 import type { BrowserLaunchSettings } from "../workers/types";
 import { LABEL_BROWSER, LABEL_MANAGED, LABEL_WEBRTC_PORT, managedLabels } from "./labels";
 import { policyArchiveFromFile } from "./policy-tar";
-import { profileContainerPath } from "./profile-paths";
+import { profileContainerPath, profileHostDir, profileHostDirFromVolumeName } from "./profile-paths";
 
 export type ImagePullResult = {
   image: string;
@@ -45,7 +45,7 @@ export type CreateBrowserContainerInput = {
   webrtcPort: number;
   nekoAdminPassword: string;
   nekoUserPassword: string;
-  /** Mount a per-user Docker volume and use persist policies. */
+  /** Mount a per-user host directory (or named volume) and use persist policies. */
   persistProfile: boolean;
   /** Optional per-launch overrides (used by remote worker agents). */
   settings?: BrowserLaunchSettings;
@@ -404,6 +404,58 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function assertPathInside(root: string, candidate: string): string {
+  const resolvedRoot = path.resolve(root);
+  const resolved = path.resolve(candidate);
+  const prefix = resolvedRoot.endsWith(path.sep) ? resolvedRoot : `${resolvedRoot}${path.sep}`;
+  if (resolved !== resolvedRoot && !resolved.startsWith(prefix)) {
+    const error = new Error("invalid_volume");
+    (error as { statusCode?: number }).statusCode = 400;
+    throw error;
+  }
+  return resolved;
+}
+
+function directorySizeBytes(dir: string): number {
+  let total = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) total += directorySizeBytes(full);
+    else if (entry.isFile()) total += statSync(full).size;
+  }
+  return total;
+}
+
+function listHostProfileVolumes(profileDataDir: string): ProfileVolumeInfo[] {
+  if (!profileDataDir || !existsSync(profileDataDir)) return [];
+  const results: ProfileVolumeInfo[] = [];
+  for (const subject of readdirSync(profileDataDir, { withFileTypes: true })) {
+    if (!subject.isDirectory() || !/^[a-f0-9]{32}$/.test(subject.name)) continue;
+    const subjectDir = path.join(profileDataDir, subject.name);
+    for (const browser of readdirSync(subjectDir, { withFileTypes: true })) {
+      if (!browser.isDirectory()) continue;
+      const mountpoint = path.join(subjectDir, browser.name);
+      let createdAt: string | null = null;
+      let sizeBytes: number | null = null;
+      try {
+        createdAt = statSync(mountpoint).mtime.toISOString();
+        sizeBytes = directorySizeBytes(mountpoint);
+      } catch {
+        /* listing is best-effort */
+      }
+      results.push({
+        name: `rbi-profile-${subject.name}-${browser.name}`,
+        subjectKey: subject.name,
+        browser: browser.name,
+        sizeBytes,
+        createdAt,
+        mountpoint,
+      });
+    }
+  }
+  return results;
+}
+
 export function createDockerRuntime(config: Config): ContainerRuntime {
   const docker = new Docker({ socketPath: config.dockerSocketPath });
 
@@ -459,29 +511,38 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
         config.browserNetworkMode === "host" ? input.webrtcPort + 10000 : 8080;
       const useHostNet = config.browserNetworkMode === "host";
       const mounts: Array<{ Type: "volume"; Source: string; Target: string; ReadOnly: boolean }> = [];
+      const binds: string[] = [];
 
       if (input.persistProfile) {
-        const volumeName = profileVolumeName(input.subjectId, input.browser);
-        try {
-          await docker.createVolume({
-            Name: volumeName,
-            Labels: {
-              [LABEL_MANAGED]: "true",
-              "rbi.subject_key": profileStorageKey(input.subjectId),
-              "rbi.browser": input.browser,
-            },
+        const target = profileContainerPath(input.browser);
+        if (config.profileDataDir) {
+          const hostDir = profileHostDir(config.profileDataDir, input.subjectId, input.browser);
+          mkdirSync(hostDir, { recursive: true });
+          // :Z so SELinux allows the Neko user to write cookies/config on the HDD.
+          binds.push(`${hostDir}:${target}:Z`);
+        } else {
+          const volumeName = profileVolumeName(input.subjectId, input.browser);
+          try {
+            await docker.createVolume({
+              Name: volumeName,
+              Labels: {
+                [LABEL_MANAGED]: "true",
+                "rbi.subject_key": profileStorageKey(input.subjectId),
+                "rbi.browser": input.browser,
+              },
+            });
+          } catch (error) {
+            const statusCode = (error as { statusCode?: number }).statusCode;
+            // 409 = volume already exists
+            if (statusCode !== 409) throw error;
+          }
+          mounts.push({
+            Type: "volume",
+            Source: volumeName,
+            Target: target,
+            ReadOnly: false,
           });
-        } catch (error) {
-          const statusCode = (error as { statusCode?: number }).statusCode;
-          // 409 = volume already exists
-          if (statusCode !== 409) throw error;
         }
-        mounts.push({
-          Type: "volume",
-          Source: volumeName,
-          Target: profileContainerPath(input.browser),
-          ReadOnly: false,
-        });
       }
 
       const container = await docker.createContainer({
@@ -533,6 +594,7 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
                 },
               }),
           RestartPolicy: { Name: "no" },
+          Binds: binds.length > 0 ? binds : undefined,
           Mounts: mounts.length > 0 ? mounts : undefined,
         },
         ...(useHostNet
@@ -653,7 +715,9 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
         }
       }
       try {
-        await container.remove({ force: true, v: true });
+        // Never pass v:true — that deletes volumes. Persistent profiles must
+        // survive session destroy / portal auto-update.
+        await container.remove({ force: true, v: false });
       } catch (error) {
         const statusCode = (error as { statusCode?: number }).statusCode;
         if (statusCode !== 404) throw error;
@@ -674,6 +738,11 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
     },
 
     async listProfileVolumes() {
+      const byName = new Map<string, ProfileVolumeInfo>();
+      for (const volume of listHostProfileVolumes(config.profileDataDir)) {
+        byName.set(volume.name, volume);
+      }
+
       const listed = await docker.listVolumes({
         filters: { label: [`${LABEL_MANAGED}=true`] },
       });
@@ -704,21 +773,24 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
         /* Size requires docker system df; leave null if unavailable. */
       }
 
-      return volumes.map((volume) => {
+      for (const volume of volumes) {
         const name = volume.Name ?? "";
+        if (!name || byName.has(name)) continue;
         const labels = (volume.Labels ?? {}) as Record<string, string>;
         const parsed = parseProfileVolumeName(name);
         const createdRaw = (volume as unknown as { CreatedAt?: string }).CreatedAt;
         const createdAt = typeof createdRaw === "string" ? createdRaw : null;
-        return {
+        byName.set(name, {
           name,
           subjectKey: labels["rbi.subject_key"] ?? parsed?.subjectKey ?? null,
           browser: labels["rbi.browser"] ?? labels[LABEL_BROWSER] ?? parsed?.browser ?? null,
           sizeBytes: sizeByName.get(name) ?? null,
           createdAt,
           mountpoint: volume.Mountpoint ?? null,
-        };
-      });
+        });
+      }
+
+      return [...byName.values()];
     },
 
     async removeProfileVolume(volumeName) {
@@ -728,6 +800,20 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
         (error as { statusCode?: number }).statusCode = 400;
         throw error;
       }
+
+      let removedHost = false;
+      if (config.profileDataDir) {
+        const hostDir = profileHostDirFromVolumeName(config.profileDataDir, volumeName);
+        if (hostDir) {
+          const safe = assertPathInside(config.profileDataDir, hostDir);
+          if (existsSync(safe)) {
+            rmSync(safe, { recursive: true, force: true });
+            removedHost = true;
+          }
+        }
+      }
+
+      let namedMissing = false;
       try {
         const inspection = await docker.getVolume(volumeName).inspect();
         const labels = (inspection.Labels ?? {}) as Record<string, string>;
@@ -738,25 +824,28 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
         }
       } catch (error) {
         const statusCode = (error as { statusCode?: number }).statusCode;
-        if (statusCode === 404) {
-          const missing = new Error("not_found");
-          (missing as { statusCode?: number }).statusCode = 404;
-          throw missing;
-        }
         if (statusCode === 403 || statusCode === 400) throw error;
-        // inspect can fail if volume vanished; still attempt remove
+        if (statusCode === 404) namedMissing = true;
       }
-      try {
-        await docker.getVolume(volumeName).remove({ force: false });
-      } catch (error) {
-        const statusCode = (error as { statusCode?: number }).statusCode;
-        if (statusCode === 404) return;
-        if (statusCode === 409) {
-          const busy = new Error("volume_in_use");
-          (busy as { statusCode?: number }).statusCode = 409;
-          throw busy;
+
+      if (!namedMissing) {
+        try {
+          await docker.getVolume(volumeName).remove({ force: false });
+        } catch (error) {
+          const statusCode = (error as { statusCode?: number }).statusCode;
+          if (statusCode === 409) {
+            const busy = new Error("volume_in_use");
+            (busy as { statusCode?: number }).statusCode = 409;
+            throw busy;
+          }
+          if (statusCode !== 404) throw error;
         }
-        throw error;
+      }
+
+      if (!removedHost && namedMissing) {
+        const missing = new Error("not_found");
+        (missing as { statusCode?: number }).statusCode = 404;
+        throw missing;
       }
     },
 

@@ -44,6 +44,23 @@ test("loadConfig requires AUTH_USERS and applies cookie and port settings", () =
     assert.equal(config.browserNanoCpus, 3e9);
     assert.equal(config.allowClipboard, false);
     assert.equal(config.allowDownloads, false);
+    assert.equal(config.profileDataDir, "");
+  } finally {
+    cleanup();
+  }
+});
+
+test("loadConfig resolves PROFILE_DATA_DIR onto the host filesystem", () => {
+  const { dir, cleanup } = withDir();
+  try {
+    const config = loadConfig(
+      {
+        AUTH_USERS: "admin:admin:admin",
+        PROFILE_DATA_DIR: "/var/lib/browser-isolation/profiles",
+      },
+      dir,
+    );
+    assert.equal(config.profileDataDir, "/var/lib/browser-isolation/profiles");
   } finally {
     cleanup();
   }

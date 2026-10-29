@@ -61,7 +61,7 @@ podman compose up -d --build
 
 Healthcheck hits `GET /api/health` inside the container.
 
-Data persists on volume `rbi-data` → `/data/rbi.sqlite`. Compose typically uses **bridge** networking (`BROWSER_NETWORK_MODE` default `bridge`); Alma installers force **host**.
+Alma installers store portal state on the host at `/var/lib/browser-isolation/data` (SQLite + branding) and persistent browser profiles at `/var/lib/browser-isolation/profiles`. Compose still uses volume `rbi-data` → `/data/rbi.sqlite`. Compose typically uses **bridge** networking (`BROWSER_NETWORK_MODE` default `bridge`); Alma installers force **host**.
 
 ---
 

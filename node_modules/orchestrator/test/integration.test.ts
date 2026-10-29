@@ -54,6 +54,7 @@ function integrationConfig(dir: string): Config {
     dockerSocketPath: process.env.DOCKER_SOCKET?.trim() || "/var/run/docker.sock",
     nekoPoliciesDir: path.resolve(__dirname, "../neko-policies"),
     persistProfilesEnabled: true,
+    profileDataDir: "",
     allowClipboard: false,
     allowDownloads: false,
     localWorkerEnabled: true,

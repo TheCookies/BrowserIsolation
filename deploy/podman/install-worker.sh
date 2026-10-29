@@ -21,6 +21,8 @@ ENV_FILE="${CONFIG_DIR}/.env"
 AUTH_FILE="${AUTH_FILE:-/etc/containers/auth.json}"
 WORKER_PORT="${WORKER_PORT:-8090}"
 WEBRTC_PORT_RANGE="${WEBRTC_PORT_RANGE:-52000-52099}"
+REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/TheCookies/BrowserIsolation/main}"
+HOST_STATE="${HOST_STATE:-/var/lib/browser-isolation}"
 
 # Optional GHCR login. Public packages pull without credentials.
 # Private package: GHCR_USER=YourGitHubUsername GHCR_TOKEN=ghp_... sudo -E bash install-worker.sh
@@ -161,6 +163,38 @@ free_port() {
   fi
 }
 
+install_auto_update() {
+  if [[ "${DISABLE_AUTO_UPDATE:-}" == "1" ]]; then
+    echo "==> Skipping auto-update timer (DISABLE_AUTO_UPDATE=1)"
+    return 0
+  fi
+  if ! command -v systemctl >/dev/null 2>&1; then
+    echo "WARN: systemd not found; auto-update timer not installed"
+    return 0
+  fi
+  local tmp src=""
+  local here
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
+  if [[ -n "${here}" && -f "${here}/auto-update.sh" ]]; then
+    src="${here}/auto-update.sh"
+  else
+    tmp="$(mktemp)"
+    if podman run --rm --entrypoint cat "${IMAGE}" /deploy/auto-update.sh > "${tmp}" 2>/dev/null \
+      && grep -q "browser-isolation-update.timer" "${tmp}"; then
+      src="${tmp}"
+    elif curl -fsSL "${REPO_RAW}/deploy/podman/auto-update.sh" -o "${tmp}" 2>/dev/null \
+      && grep -q "browser-isolation-update.timer" "${tmp}"; then
+      src="${tmp}"
+    else
+      rm -f "${tmp}"
+      echo "WARN: could not fetch auto-update.sh; timer not installed"
+      return 0
+    fi
+  fi
+  bash "${src}" --install-timer
+  [[ -n "${tmp:-}" && -f "${tmp:-}" ]] && rm -f "${tmp}"
+}
+
 open_firewall_ports() {
   local ports=("$@")
   if ! command -v firewall-cmd >/dev/null 2>&1; then
@@ -248,8 +282,25 @@ env_set BROWSER_CPUS 3 "${ENV_FILE}"
 env_set BROWSER_MEMORY 2g "${ENV_FILE}"
 env_set NEKO_IMAGE_TAG "${NEKO_TAG}" "${ENV_FILE}"
 env_set NODE_ENV production "${ENV_FILE}"
+env_set PROFILE_DATA_DIR "${HOST_STATE}/profiles" "${ENV_FILE}"
 chmod 600 "${ENV_FILE}"
 echo "==> Wrote ${ENV_FILE}"
+
+mkdir -p "${HOST_STATE}/profiles"
+while IFS= read -r vol; do
+  [[ "${vol}" =~ ^rbi-profile-([a-f0-9]{32})-(.+)$ ]] || continue
+  dest="${HOST_STATE}/profiles/${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+  if [[ -d "${dest}" ]] && [[ -n "$(ls -A "${dest}" 2>/dev/null || true)" ]]; then
+    continue
+  fi
+  echo "==> Copying profile volume ${vol} to ${dest}"
+  mkdir -p "${dest}"
+  podman run --rm --entrypoint cp \
+    -v "${vol}:/from:ro" \
+    -v "${dest}:/to:Z" \
+    "${IMAGE}" -a /from/. /to/ \
+    || echo "WARN: could not copy ${vol}"
+done < <(podman volume ls -q 2>/dev/null || true)
 
 echo "==> Stopping any previous ${NAME} / freeing port ${WORKER_PORT}"
 systemctl stop browser-isolation-worker.service >/dev/null 2>&1 || true
@@ -262,10 +313,12 @@ echo "==> Starting ${NAME} (host network)"
 podman run -d \
   --name "${NAME}" \
   --restart=always \
+  --label io.containers.autoupdate=registry \
   --network=host \
   --privileged \
   --security-opt label=disable \
   -v "${CONFIG_DIR}:/config:Z" \
+  -v "${HOST_STATE}:/var/lib/browser-isolation:Z" \
   -v /run/podman/podman.sock:/run/podman/podman.sock \
   -e DOCKER_SOCKET=/run/podman/podman.sock \
   -e RBI_ROLE=worker \
@@ -291,6 +344,8 @@ if [[ "${ok}" -ne 1 ]]; then
   echo "Check: sudo podman ps -a; sudo podman logs ${NAME}"
   exit 1
 fi
+
+install_auto_update
 
 # Enroll only after the agent is listening so probe (and browser pulls) can succeed.
 echo "==> Enrolling with orchestrator"
@@ -330,7 +385,7 @@ else
   echo "    Status:  enrolled / pending — Authorize in Admin → Workers to pull browsers"
 fi
 echo
-echo "Update later (pull latest image, keep .env):"
-echo "  sudo bash update-worker.sh"
+echo "Auto-update:  every 5 minutes after you push to main (GHCR :latest)"
+echo "Update now:   sudo systemctl start browser-isolation-update.service"
 echo "Full reinstall / rewrite env:"
 echo "  ORCHESTRATOR=${ORCHESTRATOR_BASE} sudo -E bash install-worker.sh"

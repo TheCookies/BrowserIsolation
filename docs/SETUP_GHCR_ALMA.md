@@ -12,7 +12,8 @@ Index of helpers: [../deploy/podman/README.md](../deploy/podman/README.md).
 ### What the container expects
 
 - Host `/etc/browser-isolation` → `/config` (`.env` lives here)
-- Volume `rbi-data` → `/data` (SQLite)
+- Host `/var/lib/browser-isolation/data` → `/data` (SQLite + branding)
+- Host `/var/lib/browser-isolation/profiles` → persistent browser profiles (when the user enables Persist)
 - Host `/run/podman/podman.sock` → same path in the container (`DOCKER_SOCKET=/run/podman/podman.sock`)
 - `--network=host` so eth0 / WebRTC ports are the real host network
 - `--privileged` + `--security-opt label=disable` (installers set these so Podman-in-Podman works on Alma)
@@ -80,6 +81,7 @@ What it does:
 3. Creates `/etc/browser-isolation/.env` on first run (`BROWSER_NETWORK_MODE=host`, `DOCKER_SOCKET=/run/podman/podman.sock`, enroll token, etc.)
 4. Starts `browser-isolation` with `--network=host --privileged` and the socket mount above
 5. Opens firewall ports `8080/tcp` and `52000-52099` tcp/udp when `firewall-cmd` exists
+6. Enables `browser-isolation-update.timer` so a push to `main` (new GHCR `:latest`) is applied within about 5 minutes
 
 ### First login
 
@@ -112,7 +114,8 @@ sudo podman run -d \
   --privileged \
   --security-opt label=disable \
   -v /etc/browser-isolation:/config:Z \
-  -v rbi-data:/data:Z \
+  -v /var/lib/browser-isolation:/var/lib/browser-isolation:Z \
+  -v /var/lib/browser-isolation/data:/data:Z \
   -v /run/podman/podman.sock:/run/podman/podman.sock \
   -e DOCKER_SOCKET=/run/podman/podman.sock \
   -e RBI_ROLE=orchestrator \
@@ -151,7 +154,7 @@ sudo podman rm -f browser-isolation
 # re-run the same podman run / installer
 ```
 
-`/etc/browser-isolation/.env` and volume `rbi-data` stay.
+`/etc/browser-isolation/.env` and `/var/lib/browser-isolation` stay.
 
 To force a brand-new `.env` (new password / IP):
 

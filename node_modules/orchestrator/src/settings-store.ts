@@ -288,6 +288,12 @@ function readonlySettings(config: Config): ReadonlySetting[] {
       value: config.databasePath,
     },
     {
+      key: "PROFILE_DATA_DIR",
+      label: "Profile data directory",
+      description: "Host path for persistent browser profiles. Empty uses named volumes.",
+      value: config.profileDataDir || "(named volumes)",
+    },
+    {
       key: "DOCKER_SOCKET",
       label: "Docker socket",
       description: "Docker Engine socket path.",

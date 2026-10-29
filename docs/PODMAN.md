@@ -27,7 +27,7 @@ The orchestrator still talks to a Docker-compatible API (dockerode). On Podman t
 | GHCR package | Image store for remote hosts (make it **Public** for `curl | sudo bash`) |
 | Install scripts | `install-orchestrator.sh` / `install-worker.sh` (canonical Alma path) |
 | Container entrypoint | Create-once `/config/.env` if missing, then start portal or worker via `RBI_ROLE` |
-| Host mounts | `/config`, `rbi-data` (orchestrator), `podman.sock`; `--network=host` |
+| Host mounts | `/config`, `/var/lib/browser-isolation` (SQLite + profiles), `podman.sock`; `--network=host` |
 | Extra hosts | Same image with `RBI_ROLE=worker` + enroll |
 
 **Quadlet** (`.container` units under `deploy/podman/`) remains as an optional/legacy reference. Installers stop old Quadlet services when present. Prefer the install scripts for new hosts.
@@ -89,7 +89,7 @@ sudo bash deploy/podman/install-orchestrator.sh
 # or pipe from the published image — see SETUP_GHCR_ALMA.md
 ```
 
-After a new GHCR publish, re-run the same script (keeps `/etc/browser-isolation/.env` + `rbi-data`).
+The installer enables `browser-isolation-update.timer`. After a GHCR publish the host pulls `:latest` within about 5 minutes and recreates the container (keeps `/etc/browser-isolation/.env` and `/var/lib/browser-isolation`). Force it with `sudo systemctl start browser-isolation-update.service`.
 
 ---
 

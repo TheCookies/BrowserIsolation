@@ -124,4 +124,5 @@ else
 fi
 echo
 echo "Cloud firewalls (security groups) are separate: allow TCP ${PORT} and TCP+UDP 52000-52099."
-echo "Update later with the same curl command."
+echo "Auto-update is on: a push to main publishes :latest, this host applies it within about 5 minutes."
+echo "  systemctl status browser-isolation-update.timer"
