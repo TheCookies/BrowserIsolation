@@ -29,6 +29,28 @@
   --shadow-sm: 0 1px 2px rgba(10, 22, 40, 0.05);
   --shadow-md: 0 10px 30px rgba(10, 22, 40, 0.08);
   --shadow-lg: 0 24px 48px rgba(10, 22, 40, 0.12);
+  --panel-soft: linear-gradient(180deg, #fbfcfe 0%, #f4f7fa 100%);
+  --selected-fill: linear-gradient(180deg, #f3fbf9, #fff);
+  --selected-glow: 0 10px 22px rgba(11, 122, 110, 0.12);
+  --chip-muted: #eef2f6;
+  --track: #e2e8f0;
+  --control-bg: #fff;
+  --feature-bg: rgba(255, 255, 255, 0.72);
+  --login-panel-bg:
+    radial-gradient(700px 360px at 80% 0%, rgba(11, 122, 110, 0.1), transparent 55%),
+    linear-gradient(180deg, #f4f8fc 0%, #e7eef6 100%);
+  --login-form-bg: rgba(255, 255, 255, 0.92);
+  --disabled-btn-bg: #c5ced8;
+  --disabled-btn-fg: #6d7a8a;
+  --focus-ring: rgba(11, 122, 110, 0.18);
+  --status-ok: #166534;
+  --status-ok-soft: rgba(22, 128, 84, 0.06);
+  --status-ok-border: rgba(22, 128, 84, 0.28);
+  --status-info: #1d4ed8;
+  --status-info-soft: rgba(37, 99, 235, 0.06);
+  --status-info-border: rgba(37, 99, 235, 0.3);
+  --status-warn: #8a5a12;
+  --status-warn-soft: color-mix(in srgb, #c9852a 18%, var(--surface));
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 18px;
@@ -273,9 +295,7 @@ a {
   display: grid;
   place-items: center;
   padding: clamp(1.5rem, 4vw, 3rem);
-  background:
-    radial-gradient(700px 360px at 80% 0%, rgba(11, 122, 110, 0.1), transparent 55%),
-    linear-gradient(180deg, #f4f8fc 0%, #e7eef6 100%);
+  background: var(--login-panel-bg);
 }
 
 .login-form {
@@ -284,8 +304,8 @@ a {
   gap: 0.95rem;
   padding: 1.75rem;
   border-radius: var(--radius-lg);
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(213, 222, 232, 0.95);
+  background: var(--login-form-bg);
+  border: 1px solid var(--line);
   box-shadow: var(--shadow-lg);
   animation: rise-in 560ms var(--ease-out) 60ms both;
 }
@@ -293,7 +313,7 @@ a {
 .card {
   width: min(100%, 28rem);
   background: var(--surface-elevated);
-  border: 1px solid rgba(213, 222, 232, 0.9);
+  border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   padding: 1.55rem 1.55rem 1.65rem;
   box-shadow: var(--shadow-md);
@@ -370,7 +390,7 @@ input[type="password"]:focus,
 input:not([type]):focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(11, 122, 110, 0.18);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 button {
@@ -400,8 +420,8 @@ button:active:not(:disabled) {
 }
 
 button:disabled {
-  background: #c5ced8;
-  color: #6d7a8a;
+  background: var(--disabled-btn-bg);
+  color: var(--disabled-btn-fg);
   cursor: not-allowed;
   box-shadow: none;
   transform: none;
@@ -740,7 +760,7 @@ button:disabled {
 }
 
 .session-pill.idle {
-  background: #eef2f6;
+  background: var(--chip-muted);
   color: var(--muted);
 }
 
@@ -811,7 +831,7 @@ button:disabled {
   padding: 1rem 1.1rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: #f7fafc;
+  background: var(--surface-muted);
   cursor: pointer;
   transition:
     border-color var(--duration) var(--ease-out),
@@ -820,7 +840,7 @@ button:disabled {
 
 .persist-toggle.on {
   border-color: var(--accent);
-  background: linear-gradient(180deg, #f3fbf9, #fff);
+  background: var(--selected-fill);
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
@@ -849,8 +869,8 @@ button:disabled {
 .feature {
   padding: 1.2rem 1.25rem;
   border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(213, 222, 232, 0.9);
+  background: var(--feature-bg);
+  border: 1px solid var(--line);
   box-shadow: var(--shadow-sm);
 }
 
@@ -924,10 +944,10 @@ legend {
 
 .choice.selected {
   border-color: var(--accent);
-  background: linear-gradient(180deg, #f3fbf9, #fff);
+  background: var(--selected-fill);
   box-shadow:
     inset 0 0 0 1px var(--accent),
-    0 10px 22px rgba(11, 122, 110, 0.12);
+    var(--selected-glow);
 }
 
 .choice input {
@@ -1008,7 +1028,7 @@ legend {
 }
 
 .content .button-quiet:hover:not(:disabled) {
-  background: #f3f6fa;
+  background: var(--surface-hover);
   border-color: var(--line-strong);
   color: var(--ink);
 }
@@ -1170,7 +1190,7 @@ td.empty {
 .pull-progress-track {
   height: 0.65rem;
   border-radius: 999px;
-  background: #e2e8f0;
+  background: var(--track);
   overflow: hidden;
 }
 
@@ -1221,7 +1241,7 @@ td.empty {
   flex-shrink: 0;
   padding: 0.85rem 1.35rem 1.1rem;
   border-top: 1px solid var(--line);
-  background: #f8fafc;
+  background: var(--panel-footer);
 }
 
 .modal-panel .panel-header {
@@ -1240,7 +1260,7 @@ td.empty {
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 0.55rem;
-  background: #fff;
+  background: var(--control-bg);
   color: var(--muted);
   font-size: 1.35rem;
   line-height: 1;
@@ -1249,7 +1269,8 @@ td.empty {
 
 .modal-close:hover:not(:disabled) {
   color: var(--ink);
-  border-color: #c5d0db;
+  border-color: var(--line-strong);
+  background: var(--surface-hover);
 }
 
 .modal-close:disabled {
@@ -1276,7 +1297,7 @@ td.empty {
   padding: 1.1rem 1.15rem 1.05rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: linear-gradient(180deg, #fbfcfe 0%, #f4f7fa 100%);
+  background: var(--panel-soft);
 }
 
 .settings-card-main {
@@ -1317,7 +1338,7 @@ td.empty {
   padding: 0.18rem 0.5rem;
   border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
   border-radius: 0.4rem;
-  background: color-mix(in srgb, var(--accent-soft) 55%, #fff);
+  background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface));
   color: var(--accent-ink);
   font-size: 0.78rem;
   font-weight: 600;
@@ -1335,7 +1356,7 @@ td.empty {
   height: 2.75rem;
   border: 1px solid var(--line);
   border-radius: 0.7rem;
-  background: #fff;
+  background: var(--control-bg);
 }
 
 .settings-card-media .brand-logo,
@@ -1348,7 +1369,7 @@ td.empty {
   align-self: flex-start;
   appearance: none;
   border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
-  background: #fff;
+  background: var(--control-bg);
   color: var(--accent-ink);
   font: inherit;
   font-weight: 600;
@@ -1372,7 +1393,7 @@ td.empty {
   padding: 0.9rem 1rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: #f8fafc;
+  background: var(--surface-muted);
 }
 
 .branding-modal-preview {
@@ -1405,13 +1426,13 @@ td.empty {
 .branding-actions .button-quiet {
   color: var(--ink-soft);
   border-color: var(--line);
-  background: #fff;
+  background: var(--control-bg);
 }
 
 .branding-actions .button-quiet:hover:not(:disabled) {
   color: var(--ink);
   border-color: var(--line-strong);
-  background: #f8fafc;
+  background: var(--surface-hover);
 }
 
 .modal-panel-settings-wide {
@@ -1591,13 +1612,13 @@ td.empty {
 .password-modal-actions .button-quiet {
   color: var(--ink-soft);
   border-color: var(--line);
-  background: #fff;
+  background: var(--control-bg);
 }
 
 .password-modal-actions .button-quiet:hover:not(:disabled) {
   color: var(--ink);
   border-color: var(--line-strong);
-  background: #f8fafc;
+  background: var(--surface-hover);
 }
 
 .worker-status {
@@ -1633,7 +1654,7 @@ td.empty {
 .meter-track {
   height: 0.55rem;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--track);
   overflow: hidden;
 }
 
@@ -1687,7 +1708,7 @@ td.empty {
   padding: 0.85rem 0.95rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: #f8fafc;
+  background: var(--surface-muted);
   cursor: pointer;
   transition:
     border-color var(--duration) var(--ease-out),
@@ -1697,7 +1718,7 @@ td.empty {
 
 .browser-check.on {
   border-color: var(--accent);
-  background: linear-gradient(180deg, #f3fbf9, #fff);
+  background: var(--selected-fill);
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
@@ -1727,7 +1748,7 @@ td.empty {
   padding: 1rem 1.15rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: linear-gradient(180deg, #fbfcfe 0%, #f4f7fa 100%);
+  background: var(--panel-soft);
 }
 
 .workers-manual-add {
@@ -1745,8 +1766,8 @@ td.empty {
 }
 
 .badge.worker-status-pending {
-  background: color-mix(in srgb, #c9852a 18%, var(--surface));
-  color: #8a5a12;
+  background: var(--status-warn-soft);
+  color: var(--status-warn);
 }
 
 .badge.worker-status-deauthorized,
@@ -1824,7 +1845,7 @@ td.empty {
   padding: 0.95rem 1rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: #fbfcfe;
+  background: var(--surface-muted);
 }
 
 .settings-field-label {
@@ -1854,7 +1875,7 @@ td.empty {
 }
 
 .settings-tag.muted {
-  background: #eef2f6;
+  background: var(--chip-muted);
   color: var(--muted);
 }
 
@@ -1902,7 +1923,7 @@ td.empty {
   display: block;
   padding: 0.55rem 0.7rem;
   border-radius: var(--radius-sm);
-  background: #eef2f6;
+  background: var(--chip-muted);
   color: var(--ink-soft);
   font-size: 0.86rem;
   word-break: break-all;
@@ -2480,7 +2501,7 @@ td.empty {
   padding: 0.35rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: linear-gradient(180deg, #fbfcfe 0%, #f4f7fa 100%);
+  background: var(--panel-soft);
 }
 
 .admin-subnav a {
@@ -2497,7 +2518,7 @@ td.empty {
 
 .admin-subnav a:hover {
   color: var(--ink);
-  background: #f1f5f9;
+  background: var(--surface-hover);
 }
 
 .admin-subnav a.active {
@@ -2519,7 +2540,7 @@ td.empty {
   padding: 0.85rem 0.95rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: #f8fafc;
+  background: var(--surface-muted);
 }
 
 .audit-filter-field {
@@ -2606,7 +2627,7 @@ td.empty {
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: #fff;
+  background: var(--control-bg);
   cursor: pointer;
 }
 
@@ -2728,7 +2749,7 @@ td.empty {
   padding: 1rem 1.15rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: linear-gradient(180deg, #fbfcfe 0%, #f4f7fa 100%);
+  background: var(--panel-soft);
 }
 
 .sso-summary-copy {
@@ -2756,7 +2777,7 @@ td.empty {
   flex-shrink: 0;
   appearance: none;
   border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
-  background: #fff;
+  background: var(--control-bg);
   color: var(--accent-ink);
   font: inherit;
   font-weight: 600;
@@ -2777,7 +2798,7 @@ td.empty {
   padding: 0.85rem 0.95rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: #f8fafc;
+  background: var(--surface-muted);
 }
 
 .signin-overview p {
@@ -2799,7 +2820,7 @@ td.empty {
   padding: 1rem 1.05rem 1.05rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: #fff;
+  background: var(--control-bg);
 }
 
 .signin-section:last-child {
@@ -2844,17 +2865,17 @@ td.empty {
   padding: 0.85rem 0.95rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: #f8fafc;
+  background: var(--surface-muted);
 }
 
 .ldap-status-card.ready {
-  border-color: rgba(22, 128, 84, 0.28);
-  background: rgba(22, 128, 84, 0.06);
+  border-color: var(--status-ok-border);
+  background: var(--status-ok-soft);
 }
 
 .ldap-status-card.enabled.ready {
-  border-color: rgba(37, 99, 235, 0.3);
-  background: rgba(37, 99, 235, 0.06);
+  border-color: var(--status-info-border);
+  background: var(--status-info-soft);
 }
 
 .ldap-status-head {
@@ -2880,11 +2901,11 @@ td.empty {
 }
 
 .ldap-status-card.ready .ldap-status-badge {
-  color: #166534;
+  color: var(--status-ok);
 }
 
 .ldap-status-card.enabled.ready .ldap-status-badge {
-  color: #1d4ed8;
+  color: var(--status-info);
 }
 
 .ldap-checklist {
@@ -2934,8 +2955,8 @@ td.empty {
 }
 
 .ldap-checklist li.ok .ldap-check-mark {
-  background: rgba(22, 128, 84, 0.14);
-  color: #166534;
+  background: var(--status-ok-soft);
+  color: var(--status-ok);
 }
 
 .ldap-status-hint {
@@ -2948,7 +2969,7 @@ td.empty {
   padding: 0.85rem 0.95rem;
   border: 1px dashed var(--line-strong);
   border-radius: var(--radius-sm);
-  background: #fff;
+  background: var(--control-bg);
 }
 
 .ldap-test-row {
@@ -2977,12 +2998,12 @@ td.empty {
   padding: 0.7rem 0.8rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--line);
-  background: #f8fafc;
+  background: var(--surface-muted);
 }
 
 .ldap-test-result.ok {
-  border-color: rgba(22, 128, 84, 0.3);
-  background: rgba(22, 128, 84, 0.07);
+  border-color: var(--status-ok-border);
+  background: var(--status-ok-soft);
 }
 
 .ldap-test-result.fail {
@@ -3017,7 +3038,7 @@ td.empty {
 }
 
 .ldap-test-result li.ok strong {
-  color: #166534;
+  color: var(--status-ok);
 }
 
 .ldap-test-result li.fail strong {
@@ -3039,7 +3060,7 @@ td.empty {
   padding: 0.85rem 0.95rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: #f8fafc;
+  background: var(--surface-muted);
 }
 
 .sso-sp-heading {
@@ -3083,14 +3104,14 @@ td.empty {
   font-size: 0.82rem;
   padding: 0.4rem 0.5rem;
   border-radius: 0.45rem;
-  background: #fff;
+  background: var(--control-bg);
   border: 1px solid var(--line);
 }
 
 .copy-row-btn {
   appearance: none;
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--control-bg);
   color: var(--ink);
   font: inherit;
   font-size: 0.8rem;
@@ -3101,8 +3122,8 @@ td.empty {
 }
 
 .copy-row-btn:hover:not(:disabled) {
-  border-color: #c5d0db;
-  background: #f4f7fa;
+  border-color: var(--line-strong);
+  background: var(--surface-hover);
 }
 
 .copy-row-btn:disabled {
@@ -3121,9 +3142,9 @@ td.empty {
   height: 1.15rem;
   display: inline-grid;
   place-items: center;
-  border: 1px solid #c9d4df;
+  border: 1px solid var(--line-strong);
   border-radius: 999px;
-  background: #fff;
+  background: var(--control-bg);
   color: var(--muted);
   font: inherit;
   font-size: 0.68rem;
@@ -3255,88 +3276,56 @@ html[data-theme="dark"] {
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
   --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.35);
   --shadow-lg: 0 24px 48px rgba(0, 0, 0, 0.45);
-}
-
-html[data-theme="dark"] .card {
-  border-color: var(--line);
-  background: var(--surface-elevated);
-}
-
-html[data-theme="dark"] .account-menu,
-html[data-theme="dark"] .modal-panel,
-html[data-theme="dark"] .modal-close,
-html[data-theme="dark"] .settings-card,
-html[data-theme="dark"] .settings-card-media,
-html[data-theme="dark"] .settings-card-configure,
-html[data-theme="dark"] .sso-configure,
-html[data-theme="dark"] .sso-sp-card,
-html[data-theme="dark"] .signin-overview,
-html[data-theme="dark"] .signin-section,
-html[data-theme="dark"] .ldap-status-card,
-html[data-theme="dark"] .ldap-test-panel,
-html[data-theme="dark"] .ldap-test-result,
-html[data-theme="dark"] .branding-modal-layout,
-html[data-theme="dark"] .persist-toggle,
-html[data-theme="dark"] .feature,
-html[data-theme="dark"] .browser-check,
-html[data-theme="dark"] .copy-row-btn,
-html[data-theme="dark"] .help-tip-btn {
-  background: var(--surface);
-  border-color: var(--line);
-  color: var(--ink);
-}
-
-html[data-theme="dark"] .settings-card,
-html[data-theme="dark"] .sso-summary,
-html[data-theme="dark"] .persist-toggle {
-  background: linear-gradient(180deg, #1a2330 0%, #151c27 100%);
-}
-
-html[data-theme="dark"] .persist-toggle.on,
-html[data-theme="dark"] .browser-check.on,
-html[data-theme="dark"] .profile-theme-toggle.on {
-  background: linear-gradient(180deg, rgba(43, 179, 163, 0.16), var(--surface));
-}
-
-html[data-theme="dark"] .about-version,
-html[data-theme="dark"] .about-list {
-  background: var(--surface);
-  border-color: var(--line);
-}
-
-html[data-theme="dark"] .about-row {
-  border-top-color: var(--line);
-}
-
-html[data-theme="dark"] .modal-panel-sso-footer,
-html[data-theme="dark"] .admin-subnav,
-html[data-theme="dark"] .table-wrap,
-html[data-theme="dark"] .settings-readonly-value {
-  background: var(--panel-footer);
-  border-color: var(--line);
-  color: var(--ink);
-}
-
-html[data-theme="dark"] .modal-close:hover:not(:disabled),
-html[data-theme="dark"] .settings-card-configure:hover,
-html[data-theme="dark"] .sso-configure:hover,
-html[data-theme="dark"] .branding-actions .button-quiet:hover:not(:disabled),
-html[data-theme="dark"] .button-quiet:hover:not(:disabled) {
-  background: var(--surface-hover);
-  border-color: var(--line-strong);
-  color: var(--ink);
+  --panel-soft: linear-gradient(180deg, #1a2330 0%, #151c27 100%);
+  --selected-fill: linear-gradient(180deg, rgba(43, 179, 163, 0.16), var(--surface));
+  --selected-glow: 0 10px 22px rgba(0, 0, 0, 0.28);
+  --chip-muted: #243041;
+  --track: #243041;
+  --control-bg: #151c27;
+  --feature-bg: #151c27;
+  --login-panel-bg:
+    radial-gradient(700px 360px at 80% 0%, rgba(43, 179, 163, 0.1), transparent 55%),
+    linear-gradient(180deg, #101821 0%, #0b1118 100%);
+  --login-form-bg: rgba(21, 28, 39, 0.94);
+  --disabled-btn-bg: #3a4556;
+  --disabled-btn-fg: #8a97a8;
+  --focus-ring: rgba(43, 179, 163, 0.28);
+  --status-ok: #6ee7a8;
+  --status-ok-soft: rgba(46, 180, 120, 0.12);
+  --status-ok-border: rgba(46, 180, 120, 0.35);
+  --status-info: #93c5fd;
+  --status-info-soft: rgba(96, 165, 250, 0.12);
+  --status-info-border: rgba(96, 165, 250, 0.35);
+  --status-warn: #f0c48a;
+  --status-warn-soft: rgba(201, 133, 26, 0.18);
 }
 
 html[data-theme="dark"] .content .button-quiet,
-html[data-theme="dark"] .modal-panel .button-quiet {
+html[data-theme="dark"] .modal-panel .button-quiet,
+html[data-theme="dark"] .branding-actions .button-quiet,
+html[data-theme="dark"] .password-modal-actions .button-quiet {
   color: var(--ink-soft);
   border-color: var(--line-strong);
   background: transparent;
 }
 
+html[data-theme="dark"] .content .button-quiet:hover:not(:disabled),
+html[data-theme="dark"] .modal-panel .button-quiet:hover:not(:disabled),
+html[data-theme="dark"] .branding-actions .button-quiet:hover:not(:disabled),
+html[data-theme="dark"] .password-modal-actions .button-quiet:hover:not(:disabled),
+html[data-theme="dark"] .modal-close:hover:not(:disabled),
+html[data-theme="dark"] .settings-card-configure:hover,
+html[data-theme="dark"] .sso-configure:hover,
+html[data-theme="dark"] .copy-row-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
 html[data-theme="dark"] input[type="text"],
 html[data-theme="dark"] input[type="password"],
 html[data-theme="dark"] input[type="number"],
+html[data-theme="dark"] input[type="datetime-local"],
 html[data-theme="dark"] input:not([type]),
 html[data-theme="dark"] select,
 html[data-theme="dark"] textarea {
@@ -3356,11 +3345,13 @@ html[data-theme="dark"] .profile-theme-switch::after {
 
 html[data-theme="dark"] code,
 html[data-theme="dark"] .copy-row-value code {
+  background: var(--surface-muted);
   color: var(--accent-ink);
+  border-color: var(--line);
 }
 
 html[data-theme="dark"] th {
-  background: #1a2330;
+  background: var(--surface-muted);
   color: var(--muted);
 }
 
@@ -3369,7 +3360,7 @@ html[data-theme="dark"] tbody tr:hover {
 }
 
 html[data-theme="dark"] .badge {
-  background: #243041;
+  background: var(--chip-muted);
   color: var(--ink-soft);
 }
 
@@ -3387,4 +3378,16 @@ html[data-theme="dark"] .badge.brave {
 html[data-theme="dark"] .loading-line {
   background: linear-gradient(90deg, #1a2330 20%, #243041 50%, #1a2330 80%);
   background-size: 200% 100%;
+}
+
+html[data-theme="dark"] .alert {
+  border-color: rgba(249, 112, 102, 0.28);
+}
+
+html[data-theme="dark"] .ldap-check-mark {
+  background: var(--danger-soft);
+}
+
+html[data-theme="dark"] button:hover:not(:disabled) {
+  box-shadow: 0 8px 18px rgba(43, 179, 163, 0.22);
 }
