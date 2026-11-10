@@ -135,6 +135,26 @@ export function configValueForKey(config: Config, key: string): string {
       return config.samlGroupsAttr;
     case "SAML_ADMIN_GROUP":
       return config.samlAdminGroup;
+    case "LDAP_ENABLED":
+      return config.ldapEnabled ? "true" : "false";
+    case "LDAP_URL":
+      return config.ldapUrl;
+    case "LDAP_BIND_DN":
+      return config.ldapBindDn;
+    case "LDAP_BIND_PASSWORD":
+      return config.ldapBindPassword;
+    case "LDAP_SEARCH_BASE":
+      return config.ldapSearchBase;
+    case "LDAP_SEARCH_FILTER":
+      return config.ldapSearchFilter;
+    case "LDAP_USERNAME_ATTR":
+      return config.ldapUsernameAttr;
+    case "LDAP_GROUPS_ATTR":
+      return config.ldapGroupsAttr;
+    case "LDAP_ADMIN_GROUP":
+      return config.ldapAdminGroup;
+    case "LDAP_TLS_REJECT_UNAUTHORIZED":
+      return config.ldapTlsRejectUnauthorized ? "true" : "false";
     case "AUDIT_ENABLED_ACTIONS":
       return formatAuditEnabledActions(config.auditEnabledActions);
     default:
@@ -264,6 +284,39 @@ export function applySettingToConfig(config: Config, key: string, raw: string): 
       return;
     case "SAML_ADMIN_GROUP":
       config.samlAdminGroup = value;
+      return;
+    case "LDAP_ENABLED":
+      config.ldapEnabled = readBool(key, value);
+      return;
+    case "LDAP_URL":
+      if (value && !/^ldaps?:\/\//i.test(value)) {
+        throw new Error("LDAP_URL must be an ldap:// or ldaps:// URI.");
+      }
+      config.ldapUrl = value;
+      return;
+    case "LDAP_BIND_DN":
+      config.ldapBindDn = value;
+      return;
+    case "LDAP_BIND_PASSWORD":
+      config.ldapBindPassword = raw;
+      return;
+    case "LDAP_SEARCH_BASE":
+      config.ldapSearchBase = value;
+      return;
+    case "LDAP_SEARCH_FILTER":
+      config.ldapSearchFilter = value;
+      return;
+    case "LDAP_USERNAME_ATTR":
+      config.ldapUsernameAttr = value;
+      return;
+    case "LDAP_GROUPS_ATTR":
+      config.ldapGroupsAttr = value;
+      return;
+    case "LDAP_ADMIN_GROUP":
+      config.ldapAdminGroup = value;
+      return;
+    case "LDAP_TLS_REJECT_UNAUTHORIZED":
+      config.ldapTlsRejectUnauthorized = readBool(key, value);
       return;
     case "AUDIT_ENABLED_ACTIONS":
       config.auditEnabledActions = parseAuditEnabledActions(value || "[]");

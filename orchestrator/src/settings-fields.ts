@@ -15,6 +15,7 @@ export type SettingGroup =
 
 export type SettingFieldType =
   | "string"
+  | "password"
   | "boolean"
   | "number"
   | "select"
@@ -63,8 +64,8 @@ export const SETTING_GROUPS: Array<{ id: SettingGroup; title: string; hint: stri
   },
   {
     id: "sso",
-    title: "SSO / SAML",
-    hint: "Connect Google Workspace, Microsoft Entra ID, or any SAML 2.0 identity provider.",
+    title: "Sign-in / SSO",
+    hint: "SAML SSO and optional Active Directory LDAP/LDAPS password login.",
   },
   {
     id: "audit",
@@ -299,6 +300,80 @@ export const EDITABLE_SETTINGS: SettingField[] = [
       "If any group equals this value (case-insensitive), the user is an administrator. Leave blank to never auto-promote.",
     group: "sso",
     type: "string",
+  },
+  {
+    key: "LDAP_ENABLED",
+    label: "Enable LDAP / Active Directory",
+    description:
+      "Allow password login against LDAP/LDAPS for usernames that are not local accounts. Local users always take precedence.",
+    group: "sso",
+    type: "boolean",
+  },
+  {
+    key: "LDAP_URL",
+    label: "LDAP URL",
+    description: "Directory URI, preferably LDAPS (e.g. ldaps://dc.example.com:636).",
+    group: "sso",
+    type: "string",
+  },
+  {
+    key: "LDAP_BIND_DN",
+    label: "Bind DN",
+    description: "Service account distinguished name used to search for users.",
+    group: "sso",
+    type: "string",
+  },
+  {
+    key: "LDAP_BIND_PASSWORD",
+    label: "Bind password",
+    description: "Password for the LDAP bind DN (service account).",
+    group: "sso",
+    type: "password",
+  },
+  {
+    key: "LDAP_SEARCH_BASE",
+    label: "Search base",
+    description: "Base DN for user search (e.g. DC=corp,DC=example,DC=com).",
+    group: "sso",
+    type: "string",
+  },
+  {
+    key: "LDAP_SEARCH_FILTER",
+    label: "Search filter",
+    description:
+      "LDAP filter with {{username}} placeholder. Blank uses sAMAccountName or userPrincipalName.",
+    group: "sso",
+    type: "string",
+  },
+  {
+    key: "LDAP_USERNAME_ATTR",
+    label: "Username attribute",
+    description: "Attribute used as the display username. Blank defaults to sAMAccountName.",
+    group: "sso",
+    type: "string",
+  },
+  {
+    key: "LDAP_GROUPS_ATTR",
+    label: "Groups attribute",
+    description: "Attribute listing group membership. Blank defaults to memberOf.",
+    group: "sso",
+    type: "string",
+  },
+  {
+    key: "LDAP_ADMIN_GROUP",
+    label: "LDAP admin group(s)",
+    description:
+      "CN names (comma-separated) and/or full DNs (semicolon-separated). Membership grants admin (case-insensitive). Blank never auto-promotes.",
+    group: "sso",
+    type: "string",
+  },
+  {
+    key: "LDAP_TLS_REJECT_UNAUTHORIZED",
+    label: "Reject unauthorized LDAPS certificates",
+    description:
+      "When true (default), require a trusted TLS certificate for ldaps://. Set false only for lab self-signed DCs.",
+    group: "sso",
+    type: "boolean",
   },
   {
     key: "AUDIT_ENABLED_ACTIONS",

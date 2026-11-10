@@ -3,14 +3,16 @@ import { createHash } from "node:crypto";
 /**
  * Stable user identity for ownership of preferences and browser profile volumes.
  *
- * Format today (local auth): `local:<username>`
- * Planned SAML format:      `saml:<NameID>` (or `saml:<NameIDFormat>:<NameID>`)
+ * Formats:
+ * - Local: `local:<username>`
+ * - SAML:  `saml:<NameID>` (or `saml:<NameIDFormat>:<NameID>`)
+ * - LDAP:  `ldap:<objectGUID>` (or `ldap:<DN>` when GUID is unavailable)
  *
- * Never use display usernames alone as storage keys — SAML NameIDs and local
- * usernames can collide or contain path-unsafe characters. Always derive a
- * filesystem/volume key with `profileStorageKey(subjectId)`.
+ * Never use display usernames alone as storage keys — SAML NameIDs, LDAP DNs,
+ * and local usernames can collide or contain path-unsafe characters. Always
+ * derive a filesystem/volume key with `profileStorageKey(subjectId)`.
  *
- * See docs/USER_IDENTITY.md for the SAML swap checklist.
+ * See docs/USER_IDENTITY.md.
  */
 export function localSubjectId(username: string): string {
   return `local:${username}`;
@@ -23,6 +25,12 @@ export function samlSubjectId(nameId: string, nameIdFormat?: string): string {
     return `saml:${nameIdFormat.trim()}:${id}`;
   }
   return `saml:${id}`;
+}
+
+export function ldapSubjectId(stableId: string): string {
+  const id = stableId.trim();
+  if (!id) throw new Error("LDAP subject id is empty.");
+  return `ldap:${id}`;
 }
 
 /** Docker volume / path segment derived from subjectId (hex, path-safe). */

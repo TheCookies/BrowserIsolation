@@ -55,6 +55,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): void {
     return {
       local: true,
       saml: config.samlEnabled,
+      ldap: config.ldapEnabled,
       siteName: config.siteName,
       logoUrl: branding.getLogoInfo()?.url ?? null,
       ssoLabel: "Sign in with SSO",

@@ -388,7 +388,7 @@ export type AdminSettingField = {
   label: string;
   description: string;
   group: "portal" | "security" | "browser" | "webrtc" | "cleanup" | "sso" | "audit";
-  type: "string" | "boolean" | "number" | "select" | "json" | "size" | "text";
+  type: "string" | "password" | "boolean" | "number" | "select" | "json" | "size" | "text";
   options?: string[];
   min?: number;
   max?: number;
@@ -400,6 +400,7 @@ export type AdminSettingField = {
 export type AuthMethods = {
   local: boolean;
   saml: boolean;
+  ldap?: boolean;
   siteName: string;
   logoUrl: string | null;
   ssoLabel?: string;

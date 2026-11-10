@@ -54,6 +54,16 @@ function baseConfig(dir: string): Config {
     samlUsernameAttr: "",
     samlGroupsAttr: "",
     samlAdminGroup: "",
+    ldapEnabled: false,
+    ldapUrl: "",
+    ldapBindDn: "",
+    ldapBindPassword: "",
+    ldapSearchBase: "",
+    ldapSearchFilter: "",
+    ldapUsernameAttr: "",
+    ldapGroupsAttr: "",
+    ldapAdminGroup: "",
+    ldapTlsRejectUnauthorized: true,
     auditEnabledActions: defaultAuditEnabledActions(),
     idleTimeoutMinutes: 60,
     maxSessionHours: 12,
@@ -105,6 +115,41 @@ test("settings store validates, persists, and hydrates overrides", () => {
 test("applySettingToConfig rejects bad codec", () => {
   const config = baseConfig("/tmp");
   assert.throws(() => applySettingToConfig(config, "CAPTURE_VIDEO_CODEC", "av1"), /vp8/);
+});
+
+test("LDAP settings round-trip through the settings store", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rbi-settings-ldap-"));
+  try {
+    const config = baseConfig(dir);
+    const db = openDatabase(config.databasePath);
+    const settings = createSettingsStore(db, config);
+
+    assert.throws(() => applySettingToConfig(config, "LDAP_URL", "dc.example.com"), /ldap:\/\//);
+
+    settings.update({
+      LDAP_ENABLED: "true",
+      LDAP_URL: "ldaps://dc.example.com:636",
+      LDAP_BIND_DN: "CN=svc,DC=example,DC=com",
+      LDAP_BIND_PASSWORD: "s3cret",
+      LDAP_SEARCH_BASE: "DC=example,DC=com",
+      LDAP_ADMIN_GROUP: "Portal Admins,Domain Admins",
+      LDAP_TLS_REJECT_UNAUTHORIZED: "false",
+    });
+    assert.equal(config.ldapEnabled, true);
+    assert.equal(config.ldapUrl, "ldaps://dc.example.com:636");
+    assert.equal(config.ldapBindPassword, "s3cret");
+    assert.equal(config.ldapAdminGroup, "Portal Admins,Domain Admins");
+    assert.equal(config.ldapTlsRejectUnauthorized, false);
+
+    const fresh = baseConfig(dir);
+    createSettingsStore(db, fresh).hydrateConfig();
+    assert.equal(fresh.ldapEnabled, true);
+    assert.equal(fresh.ldapBindDn, "CN=svc,DC=example,DC=com");
+    assert.equal(fresh.ldapTlsRejectUnauthorized, false);
+    db.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("security settings default to disallow and persist when enabled", () => {

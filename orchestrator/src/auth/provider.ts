@@ -8,16 +8,16 @@ export type AuthenticatedUser = {
   role: Role;
   /**
    * Stable ownership identity for preferences and profile volumes.
-   * Local: `local:<username>`. SAML: `saml:<NameID>` (see docs/USER_IDENTITY.md).
+   * Local: `local:<username>`. SAML: `saml:<NameID>`. LDAP: `ldap:<objectGUID|DN>`.
+   * See docs/USER_IDENTITY.md.
    */
   subjectId: string;
 };
 
 /**
- * Portal authentication. Routes and session logic depend on this interface,
- * not on a particular provider. A SAML implementation can replace the local one
- * without changing callers — return the same AuthenticatedUser shape with a
- * SAML-derived subjectId.
+ * Portal password authentication. Routes and session logic depend on this
+ * interface. Local and LDAP implement it (often via a composite). SAML uses a
+ * parallel redirect/ACS path but still emits AuthenticatedUser for sessions.
  */
 export interface AuthProvider {
   authenticate(username: string, password: string): Promise<AuthenticatedUser | null>;

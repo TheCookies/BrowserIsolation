@@ -6,11 +6,11 @@ same storage model. For the full doc set, see [README.md](README.md).
 
 ## Concepts
 
-| Field | Purpose | Example (local) | Example (SAML) |
-| --- | --- | --- | --- |
-| `username` | Display / login label shown in the UI | `alice` | `alice@example.com` |
-| `subjectId` | Stable ownership key for prefs + volumes | `local:alice` | `saml:urn:oasis:…:alice@example.com` |
-| `profileStorageKey` | Path-safe hash of `subjectId` | `a1b2…` (32 hex chars) | same derivation |
+| Field | Purpose | Example (local) | Example (SAML) | Example (LDAP) |
+| --- | --- | --- | --- | --- |
+| `username` | Display / login label shown in the UI | `alice` | `alice@example.com` | `alice` |
+| `subjectId` | Stable ownership key for prefs + volumes | `local:alice` | `saml:urn:oasis:…:alice@example.com` | `ldap:<objectGUID>` |
+| `profileStorageKey` | Path-safe hash of `subjectId` | `a1b2…` (32 hex chars) | same derivation | same derivation |
 
 **Rule:** preferences and Docker volumes are keyed by `subjectId` (via
 `profileStorageKey`), never by display username alone.
@@ -92,7 +92,7 @@ Labels on each volume:
 
 ## SAML / SSO (implemented)
 
-Configure under **Admin → Settings → SSO / SAML** (or matching `.env` keys).
+Configure under **Admin → Settings → Sign-in** (or matching `.env` keys).
 Implementation lives in `orchestrator/src/auth/saml.ts` and auth routes.
 
 | Setting | Purpose |
@@ -110,7 +110,7 @@ Implementation lives in `orchestrator/src/auth/saml.ts` and auth routes.
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| `GET` | `/api/auth/methods` | `{ local, saml }` for the login page |
+| `GET` | `/api/auth/methods` | `{ local, saml, ldap }` for the login page |
 | `GET` | `/api/auth/saml/login` | Redirects to the IdP |
 | `POST` | `/api/auth/saml/acs` | Assertion consumer (IdP POST; CSRF exempt) |
 | `GET` | `/saml/metadata` | SP metadata XML |
@@ -124,6 +124,33 @@ still key on `subjectId` (`saml:…`).
 Existing `local:…` profile volumes are not renamed automatically when the same
 people later sign in via SAML — keep legacy rows or run a one-off copy/rename
 using recomputed `profileStorageKey` values.
+
+## LDAP / Active Directory (implemented)
+
+Additive password login against LDAP/LDAPS. Configure under **Admin → Settings → Sign-in**
+(or matching `.env` keys). Implementation: `orchestrator/src/auth/ldap-provider.ts`
+plus a local-first composite in `composite-provider.ts`.
+
+| Setting | Purpose |
+| --- | --- |
+| `LDAP_ENABLED` | Master switch |
+| `LDAP_URL` | `ldap://` or `ldaps://` URI (prefer LDAPS) |
+| `LDAP_BIND_DN` / `LDAP_BIND_PASSWORD` | Service account used to search |
+| `LDAP_SEARCH_BASE` | Search base DN |
+| `LDAP_SEARCH_FILTER` | Filter with `{{username}}` (AD defaults if blank) |
+| `LDAP_USERNAME_ATTR` | Display username (default `sAMAccountName`) |
+| `LDAP_GROUPS_ATTR` | Groups attribute (default `memberOf`) |
+| `LDAP_ADMIN_GROUP` | CN names (comma-separated) and/or full DNs (semicolon-separated) that grant `admin` |
+| `LDAP_TLS_REJECT_UNAUTHORIZED` | Require trusted LDAPS certs (default `true`) |
+
+**Local precedence:** if the username exists in `local_users`, only local auth runs
+(no LDAP fall-through). That keeps break-glass admins intact and avoids dual
+`local:` / `ldap:` identities for the same name.
+
+LDAP users are **not** inserted into `local_users`. `subjectId` is
+`ldap:<objectGUID>` when available, otherwise `ldap:<DN>`. `canChangePassword`
+is false for LDAP subjects. The orchestrator host must reach the domain
+controller; no public IdP callback / VIP is required for LDAP bind.
 
 ## API surface
 

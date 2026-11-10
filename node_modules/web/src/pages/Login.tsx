@@ -16,7 +16,13 @@ export function LoginPage({ onSuccess }: { onSuccess: (me: Me) => void }) {
       })
       .catch(() => {
         if (!cancelled) {
-          setMethods({ local: true, saml: false, siteName: "Browser Isolation", logoUrl: null });
+          setMethods({
+            local: true,
+            saml: false,
+            ldap: false,
+            siteName: "Browser Isolation",
+            logoUrl: null,
+          });
         }
       });
     return () => {
@@ -52,6 +58,13 @@ export function LoginPage({ onSuccess }: { onSuccess: (me: Me) => void }) {
   }
 
   const samlEnabled = Boolean(methods?.saml);
+  const ldapEnabled = Boolean(methods?.ldap);
+  const passwordHint = samlEnabled
+    ? "Use your organization account, or a local break-glass password."
+    : ldapEnabled
+      ? "Use your domain credentials or a local portal account."
+      : "Use the account issued for this portal.";
+  const passwordDivider = ldapEnabled ? "or domain / local password" : "or local account";
 
   return (
     <main className="login-page">
@@ -87,16 +100,16 @@ export function LoginPage({ onSuccess }: { onSuccess: (me: Me) => void }) {
           <h2 className="page-title">Sign in</h2>
           {samlEnabled ? (
             <>
-              <p className="hint">Use your organization account, or a local break-glass password.</p>
+              <p className="hint">{passwordHint}</p>
               <a className="button-primary login-sso" href="/api/auth/saml/login">
                 {methods?.ssoLabel ?? "Sign in with SSO"}
               </a>
               <p className="login-divider" role="separator">
-                <span>or local account</span>
+                <span>{passwordDivider}</span>
               </p>
             </>
           ) : (
-            <p className="hint">Use the account issued for this portal.</p>
+            <p className="hint">{passwordHint}</p>
           )}
           <form onSubmit={onSubmit}>
             <label>

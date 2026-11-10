@@ -95,6 +95,26 @@ export type Config = {
   samlGroupsAttr: string;
   /** Group/value that grants admin (case-insensitive); empty = never auto-admin. */
   samlAdminGroup: string;
+  /** When true, password login may authenticate unknown usernames against LDAP/AD. */
+  ldapEnabled: boolean;
+  /** ldap:// or ldaps:// URI for the directory. */
+  ldapUrl: string;
+  /** Service account DN used to search for users. */
+  ldapBindDn: string;
+  /** Service account password. */
+  ldapBindPassword: string;
+  /** Search base (e.g. DC=corp,DC=example,DC=com). */
+  ldapSearchBase: string;
+  /** Filter with `{{username}}` placeholder. */
+  ldapSearchFilter: string;
+  /** Attribute used as display username (default sAMAccountName). */
+  ldapUsernameAttr: string;
+  /** Attribute listing groups (default memberOf). */
+  ldapGroupsAttr: string;
+  /** CN names (comma-separated) and/or full DNs (semicolon-separated) that grant admin. */
+  ldapAdminGroup: string;
+  /** When false, allow LDAPS with untrusted / self-signed certs (labs only). */
+  ldapTlsRejectUnauthorized: boolean;
   /** Which audit log actions are recorded (Settings → Audit log). */
   auditEnabledActions: AuditAction[];
 };
@@ -298,6 +318,20 @@ export function loadConfig(env: NodeJS.ProcessEnv, baseDir: string): Config {
     samlUsernameAttr: env.SAML_USERNAME_ATTR?.trim() ?? "",
     samlGroupsAttr: env.SAML_GROUPS_ATTR?.trim() ?? "",
     samlAdminGroup: env.SAML_ADMIN_GROUP?.trim() ?? "",
+    ldapEnabled: readBool("LDAP_ENABLED", env.LDAP_ENABLED, false),
+    ldapUrl: env.LDAP_URL?.trim() ?? "",
+    ldapBindDn: env.LDAP_BIND_DN?.trim() ?? "",
+    ldapBindPassword: env.LDAP_BIND_PASSWORD ?? "",
+    ldapSearchBase: env.LDAP_SEARCH_BASE?.trim() ?? "",
+    ldapSearchFilter: env.LDAP_SEARCH_FILTER?.trim() ?? "",
+    ldapUsernameAttr: env.LDAP_USERNAME_ATTR?.trim() ?? "",
+    ldapGroupsAttr: env.LDAP_GROUPS_ATTR?.trim() ?? "",
+    ldapAdminGroup: env.LDAP_ADMIN_GROUP?.trim() ?? "",
+    ldapTlsRejectUnauthorized: readBool(
+      "LDAP_TLS_REJECT_UNAUTHORIZED",
+      env.LDAP_TLS_REJECT_UNAUTHORIZED,
+      true,
+    ),
     auditEnabledActions: env.AUDIT_ENABLED_ACTIONS?.trim()
       ? parseAuditEnabledActions(env.AUDIT_ENABLED_ACTIONS)
       : defaultAuditEnabledActions(),

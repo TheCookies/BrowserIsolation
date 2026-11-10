@@ -2,6 +2,8 @@ import path from "node:path";
 import { loadConfig } from "./config";
 import { openDatabase } from "./db";
 import { loadEnvFile } from "./env-file";
+import { createCompositeAuthProvider } from "./auth/composite-provider";
+import { createLdapAuthProvider } from "./auth/ldap-provider";
 import { createLocalAuthProvider } from "./auth/local-provider";
 import { createLocalUserStore, seedLocalUsersIfEmpty } from "./auth/local-user-store";
 import { buildApp } from "./app";
@@ -107,7 +109,14 @@ async function main(): Promise<void> {
   });
   const localUsers = createLocalUserStore(db);
   const seeded = await seedLocalUsersIfEmpty(localUsers, config.authUsers, config.bcryptRounds);
-  const auth = await createLocalAuthProvider(localUsers, config.bcryptRounds);
+  const localAuth = await createLocalAuthProvider(localUsers, config.bcryptRounds);
+  const ldapAuth = createLdapAuthProvider(() => config);
+  const auth = createCompositeAuthProvider({
+    localUsers,
+    local: localAuth,
+    ldap: ldapAuth,
+    isLdapEnabled: () => config.ldapEnabled,
+  });
   const branding = createBrandingStore(config.databasePath);
   const app = await buildApp({
     config,

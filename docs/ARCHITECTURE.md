@@ -42,7 +42,7 @@ One container image (`ghcr.io/thecookies/browserisolation`) serves both roles. T
 
 Node **26+** + **Fastify** service that:
 
-- Authenticates users (local bcrypt and optional SAML)
+- Authenticates users (local bcrypt, optional SAML, optional LDAP/AD)
 - Stores portal sessions, browser sessions, settings, workers, audit in **SQLite** (`better-sqlite3`)
 - Creates/destroys Neko containers via **dockerode** (local) or remote **worker agents**
 - Reverse-proxies `/session/:id/view/*` (HTTP + WebSocket) to Neko after ACL checks
@@ -142,7 +142,7 @@ Important invariants:
 | --- | --- | --- |
 | Bootstrap | `index.ts`, `config.ts`, `env-file.ts`, `db.ts` | Load `.env` (+ `/config/.env`), open SQLite, wire services |
 | HTTP app | `app.ts`, `routes/*`, `proxy.ts` | Cookies, CSRF, routes, static SPA, Neko proxy |
-| Auth | `auth/*` | Local users, SAML, `subjectId` / profile keys |
+| Auth | `auth/*` | Local users, SAML, LDAP/AD, `subjectId` / profile keys |
 | Branding | `branding-store.ts`, `routes/branding.ts` | Logo on disk next to DB; public + admin routes |
 | Browser sessions | `browser-sessions.ts`, `browser-session-store.ts` | Launch, access, destroy |
 | Docker | `docker/*` | Runtime, labels, policies, profile paths, security |

@@ -56,6 +56,16 @@ const SSO_KEYS = [
   "SAML_USERNAME_ATTR",
   "SAML_GROUPS_ATTR",
   "SAML_ADMIN_GROUP",
+  "LDAP_ENABLED",
+  "LDAP_URL",
+  "LDAP_BIND_DN",
+  "LDAP_BIND_PASSWORD",
+  "LDAP_SEARCH_BASE",
+  "LDAP_SEARCH_FILTER",
+  "LDAP_USERNAME_ATTR",
+  "LDAP_GROUPS_ATTR",
+  "LDAP_ADMIN_GROUP",
+  "LDAP_TLS_REJECT_UNAUTHORIZED",
 ] as const;
 
 const SSO_HELP: Record<string, string> = {
@@ -77,6 +87,20 @@ const SSO_HELP: Record<string, string> = {
     "Optional groups attribute name. Blank tries Entra/Google defaults (groups / role claims).",
   SAML_ADMIN_GROUP:
     "If any group equals this value (case-insensitive), the user becomes an administrator.",
+  LDAP_ENABLED:
+    "Allow domain password login for usernames that are not local accounts. Existing local users always win.",
+  LDAP_URL: "Prefer ldaps://dc.example.com:636. The orchestrator host must reach the domain controller.",
+  LDAP_BIND_DN: "Service account DN used only to search for the user (e.g. CN=rbi-svc,OU=…,DC=…).",
+  LDAP_BIND_PASSWORD: "Password for the LDAP bind DN. Stored in portal settings like other secrets.",
+  LDAP_SEARCH_BASE: "Where to search for users, usually the domain root DN.",
+  LDAP_SEARCH_FILTER:
+    "Must include {{username}}. Blank defaults to sAMAccountName or userPrincipalName match.",
+  LDAP_USERNAME_ATTR: "Display username attribute. Blank defaults to sAMAccountName.",
+  LDAP_GROUPS_ATTR: "Group membership attribute. Blank defaults to memberOf.",
+  LDAP_ADMIN_GROUP:
+    "CN names (comma-separated) or full DNs (use semicolons between DNs). Membership grants admin.",
+  LDAP_TLS_REJECT_UNAUTHORIZED:
+    "Keep true in production. Set false only for lab DCs with self-signed LDAPS certificates.",
 };
 
 const SP_HELP = {
@@ -385,6 +409,7 @@ export function SettingsPage() {
   const modalDirty = activeModal === "audit" ? auditDirty : modalDirtyKeys.length > 0;
   const ssoUrls = useMemo(() => ssoUrlsFrom(modalDraft), [modalDraft]);
   const ssoEnabled = (live.SAML_ENABLED ?? "false") === "true";
+  const ldapEnabled = (live.LDAP_ENABLED ?? "false") === "true";
   const auditEnabledCount = auditSaved.size;
   const auditTotalCount = auditCatalog.length || auditSaved.size;
 
@@ -658,10 +683,11 @@ export function SettingsPage() {
     return (
       <input
         {...common}
-        type={field.type === "number" ? "number" : "text"}
+        type={field.type === "number" ? "number" : field.type === "password" ? "password" : "text"}
         min={field.min}
         max={field.max}
         step={field.key === "BROWSER_CPUS" ? "0.25" : undefined}
+        autoComplete={field.type === "password" ? "new-password" : undefined}
         value={value}
         onChange={(event) =>
           setValues((prev) => ({ ...prev, [field.key]: event.target.value }))
@@ -765,8 +791,12 @@ export function SettingsPage() {
             />
             <SettingsCard
               title="Sign-in"
-              hint="Connect Google, Microsoft Entra, or any SAML 2.0 identity provider."
-              status={[ssoEnabled ? "SSO on" : "SSO off", "Local login available"]}
+              hint="SAML SSO and optional Active Directory LDAP/LDAPS password login."
+              status={[
+                ssoEnabled ? "SSO on" : "SSO off",
+                ldapEnabled ? "LDAP on" : "LDAP off",
+                "Local login available",
+              ]}
               onConfigure={() => openSectionModal("sso")}
             />
             <SettingsCard
@@ -875,7 +905,7 @@ export function SettingsPage() {
       {activeModal === "sso" ? (
         <SettingsModal
           title="Sign-in / SSO"
-          hint="Register this portal with your identity provider, then paste IdP values below."
+          hint="Configure SAML SSO and/or Active Directory LDAP. Local accounts always remain available."
           busy={savingModal}
           dirty={modalDirty}
           error={modalError}

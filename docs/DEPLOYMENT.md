@@ -167,14 +167,14 @@ Admin → Settings can override most of these without redeploying (except infras
 - [ ] Keep `ALLOW_CLIPBOARD` / `ALLOW_DOWNLOADS` off unless required  
 - [ ] Do not expose Podman/Docker socket or worker agent ports publicly  
 - [ ] Treat install-script GHCR credentials and `WORKER_ENROLL_TOKEN` as cluster secrets; rotate if leaked  
-- [ ] Restrict who has `admin` role; prefer SAML + `SAML_ADMIN_GROUP` when using SSO  
+- [ ] Restrict who has `admin` role; prefer SAML/`SAML_ADMIN_GROUP` and/or LDAP/`LDAP_ADMIN_GROUP` when using directory auth  
 - [ ] Back up `/data/rbi.sqlite` (and decide whether profile volumes / branding files are in scope)
 
 ---
 
 ## SAML / SSO
 
-Configure in **Admin → Settings → SSO / SAML** or via `.env`. You need at least:
+Configure in **Admin → Settings → Sign-in** or via `.env`. You need at least:
 
 - `SAML_ENABLED=true`
 - `PUBLIC_BASE_URL`
@@ -183,6 +183,24 @@ Configure in **Admin → Settings → SSO / SAML** or via `.env`. You need at le
 
 SP metadata: `https://<portal>/saml/metadata`  
 ACS: `https://<portal>/api/auth/saml/acs`
+
+Details: [USER_IDENTITY.md](USER_IDENTITY.md).
+
+---
+
+## LDAP / Active Directory
+
+Additive domain password login (local accounts remain). Configure in
+**Admin → Settings → Sign-in** or via `.env`:
+
+- `LDAP_ENABLED=true`
+- `LDAP_URL` (prefer `ldaps://…`)
+- `LDAP_BIND_DN` / `LDAP_BIND_PASSWORD`
+- `LDAP_SEARCH_BASE`
+- Optional: `LDAP_ADMIN_GROUP` (CN names and/or full DNs; use `;` between DNs)
+
+The orchestrator must reach the DC on LDAP/LDAPS. No public ACS/VIP is required
+for LDAP bind. Local usernames always take precedence over LDAP.
 
 Details: [USER_IDENTITY.md](USER_IDENTITY.md).
 

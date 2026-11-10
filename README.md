@@ -76,6 +76,10 @@ Sign in → pick a browser → **Launch**. The orchestrator starts a Neko contai
 
 Alma production default password (install script) is different — see [SETUP_GHCR_ALMA.md](docs/SETUP_GHCR_ALMA.md).
 
+Optional **SAML SSO** and **LDAP/LDAPS Active Directory** password login are configured in
+**Admin → Settings → Sign-in** (additive; local accounts stay available). See
+[USER_IDENTITY.md](docs/USER_IDENTITY.md).
+
 ---
 
 ## Local development
