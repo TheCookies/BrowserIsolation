@@ -107,7 +107,8 @@ export function openDatabase(filePath: string): Database.Database {
 
     CREATE TABLE IF NOT EXISTS browser_sessions (
       id TEXT PRIMARY KEY,
-      owner_username TEXT NOT NULL UNIQUE,
+      owner_username TEXT NOT NULL,
+      owner_subject_id TEXT NOT NULL UNIQUE,
       browser TEXT NOT NULL,
       container_id TEXT NOT NULL UNIQUE,
       container_name TEXT NOT NULL UNIQUE,
@@ -121,6 +122,8 @@ export function openDatabase(filePath: string): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_browser_sessions_owner
       ON browser_sessions(owner_username);
+    CREATE INDEX IF NOT EXISTS idx_browser_sessions_subject
+      ON browser_sessions(owner_subject_id);
 
     CREATE TABLE IF NOT EXISTS workers (
       id TEXT PRIMARY KEY,
@@ -169,11 +172,65 @@ export function openDatabase(filePath: string): Database.Database {
   migrateEnabledBrowsersAlias(db);
   migratePortalSessionsSubjectId(db);
   migrateBrowserSessionWorkers(db);
+  migrateBrowserSessionSubjectId(db);
   migrateAuditEventsWidenActions(db);
   migrateAuditEventsFilterIndexes(db);
   migrateUserPreferencesDarkMode(db);
   migrateWorkerGrants(db);
   return db;
+}
+
+/**
+ * Browser sessions must be unique per subjectId (prefs/profile ownership), not
+ * display username. LDAP users can present as sAMAccountName or UPN across
+ * logins; keying by username left the old Firefox container mounted on the
+ * same profile volume.
+ */
+function migrateBrowserSessionSubjectId(db: Database.Database): void {
+  const cols = db.prepare(`PRAGMA table_info(browser_sessions)`).all() as Array<{ name: string }>;
+  if (cols.some((col) => col.name === "owner_subject_id")) {
+    // Ensure uniqueness even if an older partial migration only added the column.
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_browser_sessions_subject_unique
+        ON browser_sessions(owner_subject_id);
+    `);
+    return;
+  }
+
+  db.exec(`
+    BEGIN;
+    CREATE TABLE browser_sessions_subject (
+      id TEXT PRIMARY KEY,
+      owner_username TEXT NOT NULL,
+      owner_subject_id TEXT NOT NULL UNIQUE,
+      browser TEXT NOT NULL,
+      container_id TEXT NOT NULL UNIQUE,
+      container_name TEXT NOT NULL UNIQUE,
+      neko_admin_password TEXT NOT NULL,
+      neko_user_password TEXT NOT NULL,
+      webrtc_port INTEGER NOT NULL,
+      worker_id TEXT NOT NULL DEFAULT 'local',
+      created_at INTEGER NOT NULL,
+      last_activity_at INTEGER NOT NULL
+    );
+    INSERT INTO browser_sessions_subject (
+      id, owner_username, owner_subject_id, browser, container_id, container_name,
+      neko_admin_password, neko_user_password, webrtc_port, worker_id,
+      created_at, last_activity_at
+    )
+    SELECT
+      id, owner_username, 'local:' || owner_username, browser, container_id, container_name,
+      neko_admin_password, neko_user_password, webrtc_port,
+      COALESCE(worker_id, 'local'), created_at, last_activity_at
+    FROM browser_sessions;
+    DROP TABLE browser_sessions;
+    ALTER TABLE browser_sessions_subject RENAME TO browser_sessions;
+    CREATE INDEX IF NOT EXISTS idx_browser_sessions_owner
+      ON browser_sessions(owner_username);
+    CREATE INDEX IF NOT EXISTS idx_browser_sessions_subject
+      ON browser_sessions(owner_subject_id);
+    COMMIT;
+  `);
 }
 
 function migrateWorkerGrants(db: Database.Database): void {

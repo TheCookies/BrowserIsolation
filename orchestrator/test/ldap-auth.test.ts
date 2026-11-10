@@ -11,6 +11,7 @@ import {
   escapeLdapFilterValue,
   formatObjectGuid,
   mapLdapRole,
+  resolveLdapDisplayUsername,
   testLdapConnection,
   type LdapDirectory,
 } from "../src/auth/ldap-provider";
@@ -54,6 +55,25 @@ test("testLdapConnection fails fast on incomplete settings", async () => {
   assert.match(result.message, /LDAP_URL is required/);
   assert.equal(result.steps[0]?.id, "config");
   assert.equal(result.steps[0]?.ok, false);
+});
+
+test("LDAP display username prefers short account name over UPN", () => {
+  assert.equal(
+    resolveLdapDisplayUsername(
+      { dn: "CN=Alice,DC=example,DC=com", attributes: { userPrincipalName: "alice@example.com" } },
+      "userPrincipalName",
+      "alice@example.com",
+    ),
+    "alice",
+  );
+  assert.equal(
+    resolveLdapDisplayUsername(
+      { dn: "CN=Alice,DC=example,DC=com", attributes: { sAMAccountName: "Alice" } },
+      "",
+      "alice@example.com",
+    ),
+    "Alice",
+  );
 });
 
 test("LDAP filter escapes username and substitutes placeholder", () => {

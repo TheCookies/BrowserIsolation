@@ -119,8 +119,15 @@ export function resolveLdapDisplayUsername(
     Object.keys(entry.attributes).find((name) => name.toLowerCase() === attr) ??
     Object.keys(entry.attributes).find((name) => name.toLowerCase() === "samaccountname") ??
     Object.keys(entry.attributes).find((name) => name.toLowerCase() === "userprincipalname");
-  if (!key) return fallback;
-  return asStringList(entry.attributes[key])[0] ?? fallback;
+  const raw = key ? asStringList(entry.attributes[key])[0] : undefined;
+  const candidate = (raw ?? fallback).trim();
+  // Prefer the short account name so login as jsmith vs jsmith@domain stay one identity
+  // for UI display. Session ownership uses subjectId separately.
+  if (candidate.includes("@")) {
+    const localPart = candidate.split("@")[0]?.trim();
+    if (localPart) return localPart;
+  }
+  return candidate || fallback.trim();
 }
 
 export function resolveLdapGroups(entry: LdapUserEntry, groupsAttr: string): string[] {

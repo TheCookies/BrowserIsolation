@@ -198,7 +198,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): void {
     }
     const user = request.authUser;
     try {
-      await browsers.destroyForUser(user.username);
+      await browsers.destroyForUser(user);
     } catch (error) {
       request.log.error({ err: error, username: user.username }, "failed to destroy browser on logout");
       return reply.code(500).send({ error: "logout_cleanup_failed" });

@@ -4,6 +4,8 @@ import type { BrowserType } from "./config";
 export type BrowserSessionRecord = {
   id: string;
   ownerUsername: string;
+  /** Stable ownership id (local:… / ldap:… / saml:…). Unique session key. */
+  ownerSubjectId: string;
   browser: BrowserType;
   containerId: string;
   containerName: string;
@@ -18,6 +20,7 @@ export type BrowserSessionRecord = {
 type Row = {
   id: string;
   owner_username: string;
+  owner_subject_id: string;
   browser: string;
   container_id: string;
   container_name: string;
@@ -33,6 +36,7 @@ function mapRow(row: Row): BrowserSessionRecord {
   return {
     id: row.id,
     ownerUsername: row.owner_username,
+    ownerSubjectId: row.owner_subject_id,
     browser: row.browser as BrowserType,
     containerId: row.container_id,
     containerName: row.container_name,
@@ -49,6 +53,7 @@ export type BrowserSessionStore = {
   insert(record: BrowserSessionRecord): void;
   getById(id: string): BrowserSessionRecord | null;
   getByOwner(username: string): BrowserSessionRecord | null;
+  getBySubjectId(subjectId: string): BrowserSessionRecord | null;
   list(): BrowserSessionRecord[];
   touch(id: string, at?: number): void;
   updateContainer(
@@ -57,20 +62,24 @@ export type BrowserSessionStore = {
   ): void;
   delete(id: string): void;
   deleteByOwner(username: string): BrowserSessionRecord | null;
+  deleteBySubjectId(subjectId: string): BrowserSessionRecord | null;
   countByWorker(workerId: string): number;
 };
 
 export function createBrowserSessionStore(db: Database.Database): BrowserSessionStore {
   const insert = db.prepare(`
     INSERT INTO browser_sessions (
-      id, owner_username, browser, container_id, container_name,
+      id, owner_username, owner_subject_id, browser, container_id, container_name,
       neko_admin_password, neko_user_password, webrtc_port, worker_id,
       created_at, last_activity_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const byId = db.prepare<[string], Row>(`SELECT * FROM browser_sessions WHERE id = ?`);
   const byOwner = db.prepare<[string], Row>(
     `SELECT * FROM browser_sessions WHERE owner_username = ?`,
+  );
+  const bySubject = db.prepare<[string], Row>(
+    `SELECT * FROM browser_sessions WHERE owner_subject_id = ?`,
   );
   const all = db.prepare<[], Row>(`SELECT * FROM browser_sessions ORDER BY created_at DESC`);
   const touchStmt = db.prepare(`UPDATE browser_sessions SET last_activity_at = ? WHERE id = ?`);
@@ -87,6 +96,7 @@ export function createBrowserSessionStore(db: Database.Database): BrowserSession
       insert.run(
         record.id,
         record.ownerUsername,
+        record.ownerSubjectId,
         record.browser,
         record.containerId,
         record.containerName,
@@ -109,6 +119,11 @@ export function createBrowserSessionStore(db: Database.Database): BrowserSession
       return row ? mapRow(row) : null;
     },
 
+    getBySubjectId(subjectId) {
+      const row = bySubject.get(subjectId);
+      return row ? mapRow(row) : null;
+    },
+
     list() {
       return all.all().map(mapRow);
     },
@@ -127,6 +142,13 @@ export function createBrowserSessionStore(db: Database.Database): BrowserSession
 
     deleteByOwner(username) {
       const existing = this.getByOwner(username);
+      if (!existing) return null;
+      remove.run(existing.id);
+      return existing;
+    },
+
+    deleteBySubjectId(subjectId) {
+      const existing = this.getBySubjectId(subjectId);
       if (!existing) return null;
       remove.run(existing.id);
       return existing;

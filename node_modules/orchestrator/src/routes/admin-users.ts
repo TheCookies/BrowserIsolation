@@ -177,7 +177,10 @@ export function registerAdminUserRoutes(app: FastifyInstance, deps: AppDeps): vo
         localUsers.delete(username);
         sessions.deleteForUsername(username);
         try {
-          await browsers.destroyForUser(username);
+          await browsers.destroyForUser({
+            username,
+            subjectId: existed.subjectId,
+          });
         } catch (error) {
           request.log.error({ err: error, username }, "failed to destroy browser after user delete");
         }

@@ -44,13 +44,13 @@ export type AdminSessionView = {
 };
 
 export type BrowserSessionService = {
-  getMine(username: string): BrowserSessionRecord | null;
+  getMine(user: Pick<AuthenticatedUser, "username" | "subjectId">): BrowserSessionRecord | null;
   getById(id: string): BrowserSessionRecord | null;
   list(): BrowserSessionRecord[];
   assertAccess(user: AuthenticatedUser, sessionId: string): BrowserSessionRecord;
   resolveProxyTarget(sessionId: string): Promise<{ session: BrowserSessionRecord; proxy: ProxyTarget }>;
   launch(user: AuthenticatedUser, browser: BrowserType): Promise<LaunchResult>;
-  destroyForUser(username: string): Promise<boolean>;
+  destroyForUser(user: Pick<AuthenticatedUser, "username" | "subjectId">): Promise<boolean>;
   destroyById(sessionId: string): Promise<boolean>;
   issueAccess(user: AuthenticatedUser, sessionId: string): Promise<SessionAccess>;
   listForAdmin(viewerCount: (sessionId: string) => number): Promise<AdminSessionView[]>;
@@ -130,9 +130,20 @@ export function createBrowserSessionService(deps: {
     syncLocalActiveCounts();
   }
 
+  function findOwnedSession(
+    user: Pick<AuthenticatedUser, "username" | "subjectId">,
+  ): BrowserSessionRecord | null {
+    // Prefer subjectId so LDAP users reconnect even when display username varies
+    // (sAMAccountName vs UPN). Fall back to username for legacy rows.
+    return (
+      store.getBySubjectId(user.subjectId) ??
+      store.getByOwner(user.username)
+    );
+  }
+
   return {
-    getMine(username) {
-      return store.getByOwner(username);
+    getMine(user) {
+      return findOwnedSession(user);
     },
 
     getById(id) {
@@ -185,7 +196,7 @@ export function createBrowserSessionService(deps: {
       }
       assertBrowserEnabled(config.enabledBrowsers, normalized);
 
-      const existing = store.getByOwner(user.username);
+      const existing = findOwnedSession(user);
       if (existing) {
         try {
           await ensureRunning(existing);
@@ -243,6 +254,7 @@ export function createBrowserSessionService(deps: {
         const nekoUserPassword = randomToken();
         const now = Date.now();
 
+        let createdContainerId: string | null = null;
         try {
           const created = await placement.createBrowser(worker, {
             sessionId,
@@ -253,6 +265,7 @@ export function createBrowserSessionService(deps: {
             nekoUserPassword,
             persistProfile,
           });
+          createdContainerId = created.containerId;
 
           // Local containers are reached over the Docker network; wait for readiness here.
           // Remote workers already wait inside the agent before returning.
@@ -267,6 +280,7 @@ export function createBrowserSessionService(deps: {
               const logs = await placement.logs(worker.id, created.containerId).catch(() => "");
               const detail = readyError instanceof Error ? readyError.message : String(readyError);
               await placement.remove(worker.id, created.containerId).catch(() => undefined);
+              createdContainerId = null;
               throw new Error(logs ? `${detail} | logs: ${logs}` : detail);
             }
           }
@@ -274,6 +288,7 @@ export function createBrowserSessionService(deps: {
           const record: BrowserSessionRecord = {
             id: sessionId,
             ownerUsername: user.username,
+            ownerSubjectId: user.subjectId,
             browser: normalized,
             containerId: created.containerId,
             containerName: created.containerName,
@@ -288,6 +303,9 @@ export function createBrowserSessionService(deps: {
           syncLocalActiveCounts();
           return { session: record, reconnect: false };
         } catch (error) {
+          if (createdContainerId) {
+            await placement.remove(worker.id, createdContainerId).catch(() => undefined);
+          }
           syncLocalActiveCounts();
           excluded.add(worker.id);
           const message = error instanceof Error ? error.message : String(error);
@@ -305,8 +323,8 @@ export function createBrowserSessionService(deps: {
       }
     },
 
-    async destroyForUser(username) {
-      const existing = store.getByOwner(username);
+    async destroyForUser(user) {
+      const existing = findOwnedSession(user);
       if (!existing) return false;
       await destroyRecord(existing);
       return true;

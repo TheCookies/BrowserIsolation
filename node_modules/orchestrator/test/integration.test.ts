@@ -112,14 +112,14 @@ test(
       assert.equal(second.session.id, first.session.id);
       assert.equal(second.session.browser, "google-chrome");
 
-      const destroyed = await service.destroyForUser(user.username);
+      const destroyed = await service.destroyForUser(user);
       assert.equal(destroyed, true);
       assert.equal(store.getByOwner(user.username), null);
 
       const after = await placement.inspect(first.session.workerId, first.session.containerId);
       assert.equal(after, null);
     } finally {
-      await service.destroyForUser(user.username).catch(() => undefined);
+      await service.destroyForUser(user).catch(() => undefined);
       db.close();
       rmSync(dir, { recursive: true, force: true });
     }

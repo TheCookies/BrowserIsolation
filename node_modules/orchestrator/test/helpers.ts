@@ -228,9 +228,11 @@ export function stubBrowsers(overrides?: Partial<BrowserSessionService>): Browse
 
 export function sampleSession(partial?: Partial<BrowserSessionRecord>): BrowserSessionRecord {
   const now = Date.now();
+  const ownerUsername = partial?.ownerUsername ?? "gus";
   return {
     id: partial?.id ?? "session-a",
-    ownerUsername: partial?.ownerUsername ?? "gus",
+    ownerUsername,
+    ownerSubjectId: partial?.ownerSubjectId ?? `local:${ownerUsername}`,
     browser: partial?.browser ?? "google-chrome",
     containerId: partial?.containerId ?? "container-a",
     containerName: partial?.containerName ?? "rbi-session-a",

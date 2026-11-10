@@ -7,5 +7,9 @@ export function canAccessBrowserSession(
 ): boolean {
   if (!user || !session) return false;
   if (user.role === "admin") return true;
+  // Prefer stable subjectId (LDAP/SAML); fall back to display username for safety.
+  if (session.ownerSubjectId && user.subjectId) {
+    return session.ownerSubjectId === user.subjectId;
+  }
   return session.ownerUsername === user.username;
 }

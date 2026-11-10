@@ -149,11 +149,50 @@ test("launch reconnects to the existing container for the same user", async () =
   assert.equal(second.session.browser, "google-chrome");
   assert.equal(created.length, 1);
 
-  const destroyed = await service.destroyForUser("gus");
+  const destroyed = await service.destroyForUser(user);
   assert.equal(destroyed, true);
   assert.deepEqual(removed, [first.session.containerId]);
   assert.equal(store.getByOwner("gus"), null);
 
+  db.close();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("launch reconnects LDAP users by subjectId even when display username changes", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rbi-ldap-session-"));
+  const config = testConfig(dir);
+  const db = openDatabase(config.databasePath);
+  const preferences = createUserPreferencesStore(db);
+  const store = createBrowserSessionStore(db);
+  const created: string[] = [];
+  const removed: string[] = [];
+  const containers = new Map<string, BrowserContainerInfo>();
+  const runtime = makeRuntime(containers, { created, removed });
+  const { placement } = testPlacement(db, config, runtime);
+  const service = createBrowserSessionService({ config, store, placement, neko, preferences });
+
+  const firstUser = {
+    username: "alice",
+    role: "user" as const,
+    subjectId: "ldap:01020304-0506-0708-090a-0b0c0d0e0f10",
+  };
+  const first = await service.launch(firstUser, "firefox");
+  assert.equal(first.reconnect, false);
+  assert.equal(first.session.ownerSubjectId, firstUser.subjectId);
+
+  // Same directory person, different typed login / display form.
+  const secondUser = {
+    username: "alice@corp.example.com",
+    role: "user" as const,
+    subjectId: firstUser.subjectId,
+  };
+  const second = await service.launch(secondUser, "firefox");
+  assert.equal(second.reconnect, true);
+  assert.equal(second.session.id, first.session.id);
+  assert.equal(created.length, 1);
+  assert.equal(removed.length, 0);
+
+  await service.destroyForUser(secondUser);
   db.close();
   rmSync(dir, { recursive: true, force: true });
 });
@@ -185,6 +224,7 @@ test("launch abandons a session on a disabled worker and uses an available one",
   store.insert({
     id: "stale-session",
     ownerUsername: "gus",
+    ownerSubjectId: "local:gus",
     browser: "google-chrome",
     containerId: "gone-container",
     containerName: "rbi-gone",
@@ -228,6 +268,7 @@ test("launch still succeeds when cleaning up a dead worker fails with unauthoriz
   store.insert({
     id: "broken-session",
     ownerUsername: "gus",
+    ownerSubjectId: "local:gus",
     browser: "firefox",
     containerId: "missing-cid",
     containerName: "rbi-missing",
@@ -268,6 +309,7 @@ test("launch still succeeds when cleaning up a dead worker fails with unauthoriz
   rmSync(dir, { recursive: true, force: true });
 });
 
+test("assertAccess allows owners and admins only", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "rbi-acl-unit-"));
   const config = testConfig(dir);
   const db = openDatabase(config.databasePath);
@@ -333,7 +375,7 @@ test("resolveProxyTarget caches docker inspect results briefly", async () => {
   assert.equal(second.proxy.targetOrigin, first.proxy.targetOrigin);
   assert.equal(inspectCalls, afterFirst, "second resolve should use cache");
 
-  await service.destroyForUser("gus");
+  await service.destroyForUser({ username: "gus", subjectId: "local:gus" });
   await assert.rejects(
     () => service.resolveProxyTarget(launched.session.id),
     (error: Error & { statusCode?: number }) => error.statusCode === 404,

@@ -50,7 +50,7 @@ export function registerSessionRoutes(app: FastifyInstance, deps: AppDeps): void
     if (!request.authUser || !request.portalSession) {
       return reply.code(401).send({ error: "unauthenticated" });
     }
-    const session = browsers.getMine(request.authUser.username);
+    const session = browsers.getMine(request.authUser);
     if (!session) {
       return { session: null };
     }
@@ -171,8 +171,8 @@ export function registerSessionRoutes(app: FastifyInstance, deps: AppDeps): void
       return reply.code(401).send({ error: "unauthenticated" });
     }
     const user = request.authUser;
-    const existing = browsers.getMine(user.username);
-    const destroyed = await browsers.destroyForUser(user.username);
+    const existing = browsers.getMine(user);
+    const destroyed = await browsers.destroyForUser(user);
     if (destroyed && existing) {
       audit.record({
         actorUsername: user.username,

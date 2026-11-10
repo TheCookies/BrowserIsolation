@@ -5,7 +5,13 @@ import { parseProfileVolumeName, profileStorageKey, profileVolumeName } from "..
 import type { BrowserType, Config } from "../config";
 import { imageForBrowser, policyMountForBrowser } from "../config";
 import type { BrowserLaunchSettings } from "../workers/types";
-import { LABEL_BROWSER, LABEL_MANAGED, LABEL_WEBRTC_PORT, managedLabels } from "./labels";
+import {
+  LABEL_BROWSER,
+  LABEL_MANAGED,
+  LABEL_SUBJECT_KEY,
+  LABEL_WEBRTC_PORT,
+  managedLabels,
+} from "./labels";
 import { policyArchiveFromFile } from "./policy-tar";
 import { clearProfileLockFiles, PROFILE_LOCK_BASENAMES } from "./profile-locks";
 import { profileContainerPath, profileHostDir, profileHostDirFromVolumeName } from "./profile-paths";
@@ -460,6 +466,86 @@ function listHostProfileVolumes(profileDataDir: string): ProfileVolumeInfo[] {
 export function createDockerRuntime(config: Config): ContainerRuntime {
   const docker = new Docker({ socketPath: config.dockerSocketPath });
 
+  async function removeContainersSharingProfile(
+    subjectId: string,
+    subjectKey: string,
+    browser: BrowserType,
+  ): Promise<void> {
+    const ids = new Set<string>();
+    try {
+      const labeled = await docker.listContainers({
+        all: true,
+        filters: {
+          label: [
+            `${LABEL_MANAGED}=true`,
+            `${LABEL_SUBJECT_KEY}=${subjectKey}`,
+            `${LABEL_BROWSER}=${browser}`,
+          ],
+        },
+      });
+      for (const item of labeled) ids.add(item.Id);
+    } catch {
+      /* fall through to mount scan */
+    }
+
+    // Older containers lack rbi.subject_key — match by mounted profile path/volume.
+    const volumeName = profileVolumeName(subjectId, browser);
+    const hostDir = config.profileDataDir
+      ? profileHostDir(config.profileDataDir, subjectId, browser)
+      : null;
+    try {
+      const managed = await docker.listContainers({
+        all: true,
+        filters: {
+          label: [`${LABEL_MANAGED}=true`, `${LABEL_BROWSER}=${browser}`],
+        },
+      });
+      for (const item of managed) {
+        if (ids.has(item.Id)) continue;
+        try {
+          const inspection = await docker.getContainer(item.Id).inspect();
+          const mounts = inspection.Mounts ?? [];
+          const hit = mounts.some((mount) => {
+            if (mount.Type === "volume" && mount.Name === volumeName) return true;
+            if (hostDir && mount.Type === "bind" && mount.Source === hostDir) return true;
+            return false;
+          });
+          if (hit) ids.add(item.Id);
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch {
+      /* best-effort */
+    }
+
+    for (const id of ids) {
+      try {
+        await thisRemove(id);
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+
+  async function thisRemove(containerId: string): Promise<void> {
+    const container = docker.getContainer(containerId);
+    try {
+      await container.stop({ t: 20 });
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode;
+      if (statusCode !== 304 && statusCode !== 404) {
+        /* force remove below */
+      }
+    }
+    try {
+      await container.remove({ force: true, v: false });
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode;
+      if (statusCode !== 404) throw error;
+    }
+  }
+
   /**
    * Drop stale Firefox/Chromium lock files from a reusable profile so the next
    * session does not hit “Firefox is already running but is not responding”.
@@ -577,8 +663,10 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
       const view = runtimeView(config, input.settings);
       const launchConfig: Config = { ...config, ...view };
       const name = containerNameFor(input.sessionId);
+      const subjectKey = profileStorageKey(input.subjectId);
       const labels = managedLabels({
         owner: input.owner,
+        subjectKey,
         sessionId: input.sessionId,
         browser: input.browser,
         webrtcPort: input.webrtcPort,
@@ -593,6 +681,9 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
 
       if (input.persistProfile) {
         const target = profileContainerPath(input.browser);
+        // LDAP users can miss username-keyed destroy and leave a live container on
+        // the same profile volume — remove those before remounting.
+        await removeContainersSharingProfile(input.subjectId, subjectKey, input.browser);
         // Previous force-killed sessions leave Firefox/Chromium lock files behind.
         await clearPersistedProfileLocks({
           subjectId: input.subjectId,
@@ -789,24 +880,9 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
     },
 
     async remove(containerId) {
-      const container = docker.getContainer(containerId);
-      try {
-        // Give Firefox a little longer to release .parentlock before SIGKILL.
-        await container.stop({ t: 20 });
-      } catch (error) {
-        const statusCode = (error as { statusCode?: number }).statusCode;
-        if (statusCode !== 304 && statusCode !== 404) {
-          // Force remove below even if stop failed for other reasons.
-        }
-      }
-      try {
-        // Never pass v:true — that deletes volumes. Persistent profiles must
-        // survive session destroy / portal auto-update.
-        await container.remove({ force: true, v: false });
-      } catch (error) {
-        const statusCode = (error as { statusCode?: number }).statusCode;
-        if (statusCode !== 404) throw error;
-      }
+      // Never pass v:true — that deletes volumes. Persistent profiles must
+      // survive session destroy / portal auto-update.
+      await thisRemove(containerId);
     },
 
     async listManaged() {
