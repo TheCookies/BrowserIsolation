@@ -7,6 +7,7 @@ import { imageForBrowser, policyMountForBrowser } from "../config";
 import type { BrowserLaunchSettings } from "../workers/types";
 import { LABEL_BROWSER, LABEL_MANAGED, LABEL_WEBRTC_PORT, managedLabels } from "./labels";
 import { policyArchiveFromFile } from "./policy-tar";
+import { clearProfileLockFiles, PROFILE_LOCK_BASENAMES } from "./profile-locks";
 import { profileContainerPath, profileHostDir, profileHostDirFromVolumeName } from "./profile-paths";
 
 export type ImagePullResult = {
@@ -459,6 +460,83 @@ function listHostProfileVolumes(profileDataDir: string): ProfileVolumeInfo[] {
 export function createDockerRuntime(config: Config): ContainerRuntime {
   const docker = new Docker({ socketPath: config.dockerSocketPath });
 
+  /**
+   * Drop stale Firefox/Chromium lock files from a reusable profile so the next
+   * session does not hit “Firefox is already running but is not responding”.
+   */
+  async function clearPersistedProfileLocks(input: {
+    subjectId: string;
+    browser: BrowserType;
+    image: string;
+  }): Promise<void> {
+    if (config.profileDataDir) {
+      const hostDir = profileHostDir(config.profileDataDir, input.subjectId, input.browser);
+      clearProfileLockFiles(hostDir);
+      return;
+    }
+
+    const volumeName = profileVolumeName(input.subjectId, input.browser);
+    try {
+      const inspected = (await docker.getVolume(volumeName).inspect()) as {
+        Mountpoint?: string;
+      };
+      const mountpoint = inspected.Mountpoint?.trim();
+      if (mountpoint && existsSync(mountpoint)) {
+        clearProfileLockFiles(mountpoint);
+        return;
+      }
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode;
+      // 404 = first launch, volume not created yet — nothing to clear.
+      if (statusCode === 404) return;
+    }
+
+    // Mountpoint not visible from this process (common in some Podman setups).
+    // Use a one-shot helper with the browser image (already local) to rm locks.
+    const lockPaths = PROFILE_LOCK_BASENAMES.map((name) => `/profile/${name}`).join(" ");
+    const helperName = `rbi-profile-unlock-${Date.now().toString(36)}`;
+    let helperId: string | null = null;
+    try {
+      const helper = await docker.createContainer({
+        name: helperName,
+        Image: input.image,
+        Entrypoint: ["sh", "-c"],
+        Cmd: [`rm -f ${lockPaths}; exit 0`],
+        Labels: {
+          [LABEL_MANAGED]: "true",
+          "rbi.purpose": "profile-unlock",
+        },
+        HostConfig: {
+          AutoRemove: false,
+          Mounts: [
+            {
+              Type: "volume",
+              Source: volumeName,
+              Target: "/profile",
+              ReadOnly: false,
+            },
+          ],
+          NetworkMode: "none",
+          CapDrop: ["ALL"],
+          SecurityOpt: ["no-new-privileges:true"],
+        },
+      });
+      helperId = helper.id;
+      await helper.start();
+      await helper.wait({ condition: "not-running" });
+    } catch {
+      /* best-effort — session start still proceeds */
+    } finally {
+      if (helperId) {
+        try {
+          await docker.getContainer(helperId).remove({ force: true });
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+
   async function readLogs(containerId: string, tail = 80): Promise<string> {
     try {
       const buffer = await docker.getContainer(containerId).logs({
@@ -515,6 +593,12 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
 
       if (input.persistProfile) {
         const target = profileContainerPath(input.browser);
+        // Previous force-killed sessions leave Firefox/Chromium lock files behind.
+        await clearPersistedProfileLocks({
+          subjectId: input.subjectId,
+          browser: input.browser,
+          image: imageForBrowser(launchConfig, input.browser),
+        });
         if (config.profileDataDir) {
           const hostDir = profileHostDir(config.profileDataDir, input.subjectId, input.browser);
           mkdirSync(hostDir, { recursive: true });
@@ -707,7 +791,8 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
     async remove(containerId) {
       const container = docker.getContainer(containerId);
       try {
-        await container.stop({ t: 10 });
+        // Give Firefox a little longer to release .parentlock before SIGKILL.
+        await container.stop({ t: 20 });
       } catch (error) {
         const statusCode = (error as { statusCode?: number }).statusCode;
         if (statusCode !== 304 && statusCode !== 404) {
