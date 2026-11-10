@@ -446,6 +446,34 @@ export function updateAdminSettings(
   );
 }
 
+export type LdapTestStep = {
+  id: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+};
+
+export type LdapTestResult = {
+  ok: boolean;
+  message: string;
+  steps: LdapTestStep[];
+};
+
+/** Probe LDAP with the current draft (or live) LDAP_* settings. Does not persist. */
+export function testAdminLdapSettings(
+  input: { settings: Record<string, string>; username?: string },
+  csrfToken: string,
+): Promise<LdapTestResult> {
+  return request(
+    "/api/admin/settings/ldap/test",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+    csrfToken,
+  );
+}
+
 export type BrandingLogo = {
   url: string;
   contentType: string;

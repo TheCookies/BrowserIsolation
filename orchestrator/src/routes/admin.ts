@@ -1,7 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { AUDIT_ACTION_DEFS, isAuditAction, type AuditListFilter } from "../audit-store";
 import type { AppDeps } from "../app";
+import { testLdapConnection } from "../auth/ldap-provider";
 import type { BrowserType } from "../config";
+import { editableKeys } from "../settings-fields";
+import { applySettingToConfig } from "../settings-store";
 import { getAboutInfo } from "../version";
 
 export type AdminBrowserSession = {
@@ -233,6 +236,66 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AppDeps): void {
         const message = error instanceof Error ? error.message : "invalid_settings";
         return reply.code(status).send({ error: "invalid_settings", detail: message });
       }
+    },
+  );
+
+  app.post<{
+    Body: { settings?: Record<string, string>; username?: string };
+  }>(
+    "/api/admin/settings/ldap/test",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            settings: {
+              type: "object",
+              additionalProperties: { type: "string" },
+            },
+            username: { type: "string" },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!requireAdmin(request, reply)) return;
+      const keys = editableKeys();
+      const trial = { ...config };
+      const patch = request.body.settings ?? {};
+      try {
+        for (const [key, raw] of Object.entries(patch)) {
+          if (!key.startsWith("LDAP_")) {
+            return reply.code(400).send({
+              error: "invalid_settings",
+              detail: `Only LDAP_* settings may be supplied for the LDAP test (got ${key}).`,
+            });
+          }
+          if (!keys.has(key)) {
+            return reply.code(400).send({
+              error: "invalid_settings",
+              detail: `unknown_setting:${key}`,
+            });
+          }
+          applySettingToConfig(trial, key, String(raw));
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "invalid_settings";
+        return reply.code(400).send({ error: "invalid_settings", detail: message });
+      }
+
+      const result = await testLdapConnection(trial, {
+        username: request.body.username,
+      });
+      request.log.info(
+        {
+          actor: request.authUser!.username,
+          ok: result.ok,
+          steps: result.steps.map((step) => ({ id: step.id, ok: step.ok })),
+        },
+        "admin ldap settings tested",
+      );
+      return result;
     },
   );
 }

@@ -125,6 +125,10 @@ test("LDAP settings round-trip through the settings store", () => {
     const settings = createSettingsStore(db, config);
 
     assert.throws(() => applySettingToConfig(config, "LDAP_URL", "dc.example.com"), /ldap:\/\//);
+    assert.throws(
+      () => settings.update({ LDAP_ENABLED: "true" }),
+      /LDAP_URL is required/,
+    );
 
     settings.update({
       LDAP_ENABLED: "true",

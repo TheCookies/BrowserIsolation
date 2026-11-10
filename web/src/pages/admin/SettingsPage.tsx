@@ -5,12 +5,14 @@ import {
   getAdminAudit,
   getAdminBranding,
   getAdminSettings,
+  testAdminLdapSettings,
   updateAdminSettings,
   uploadAdminLogo,
   type AdminAuditActionDef,
   type AdminReadonlySetting,
   type AdminSettingField,
   type BrandingLogo,
+  type LdapTestResult,
 } from "../../api";
 import { useAdminContext } from "./context";
 
@@ -149,6 +151,65 @@ function pickFields(editable: AdminSettingField[] | null, keys: readonly string[
   return keys.map((key) => byKey.get(key)).filter((field): field is AdminSettingField => Boolean(field));
 }
 
+type LdapChecklistItem = { id: string; label: string; ok: boolean; detail: string };
+
+function ldapChecklist(draft: Record<string, string>): {
+  ready: boolean;
+  enabled: boolean;
+  items: LdapChecklistItem[];
+} {
+  const url = (draft.LDAP_URL ?? "").trim();
+  const bindDn = (draft.LDAP_BIND_DN ?? "").trim();
+  const password = draft.LDAP_BIND_PASSWORD ?? "";
+  const searchBase = (draft.LDAP_SEARCH_BASE ?? "").trim();
+  const filter = (draft.LDAP_SEARCH_FILTER ?? "").trim();
+  const items: LdapChecklistItem[] = [
+    {
+      id: "url",
+      label: "LDAP URL",
+      ok: Boolean(url) && /^ldaps?:\/\//i.test(url),
+      detail: url
+        ? /^ldaps?:\/\//i.test(url)
+          ? url
+          : "Must start with ldap:// or ldaps://"
+        : "Required — prefer ldaps://dc.example.com:636",
+    },
+    {
+      id: "bindDn",
+      label: "Bind DN",
+      ok: Boolean(bindDn),
+      detail: bindDn || "Service account DN required",
+    },
+    {
+      id: "bindPassword",
+      label: "Bind password",
+      ok: Boolean(password),
+      detail: password ? "Set" : "Required",
+    },
+    {
+      id: "searchBase",
+      label: "Search base",
+      ok: Boolean(searchBase),
+      detail: searchBase || "Required — e.g. DC=corp,DC=example,DC=com",
+    },
+    {
+      id: "searchFilter",
+      label: "Search filter",
+      ok: !filter || filter.includes("{{username}}"),
+      detail: filter
+        ? filter.includes("{{username}}")
+          ? "Custom filter OK"
+          : 'Must include "{{username}}"'
+        : "Using default sAMAccountName / UPN match",
+    },
+  ];
+  return {
+    ready: items.every((item) => item.ok),
+    enabled: (draft.LDAP_ENABLED ?? "false") === "true",
+    items,
+  };
+}
+
 function HelpTip({ text }: { text: string }) {
   return (
     <span className="help-tip">
@@ -279,6 +340,7 @@ function SettingsModal({
   onSave,
   children,
   wide,
+  busyLabel = "Saving…",
 }: {
   title: string;
   hint?: string;
@@ -290,6 +352,7 @@ function SettingsModal({
   onSave: () => void;
   children: ReactNode;
   wide?: boolean;
+  busyLabel?: string;
 }) {
   const titleId = useId();
 
@@ -336,7 +399,7 @@ function SettingsModal({
             disabled={busy || !dirty}
             onClick={onSave}
           >
-            {busy ? "Saving…" : dirty ? "Save changes" : "Save"}
+            {busy ? busyLabel : dirty ? "Save changes" : "Save"}
           </button>
         </div>
       </div>
@@ -347,6 +410,9 @@ function SettingsModal({
 export function SettingsPage() {
   const { me, onMe } = useAdminContext();
   const [editable, setEditable] = useState<AdminSettingField[] | null>(null);
+  const [ldapTestUsername, setLdapTestUsername] = useState("");
+  const [ldapTesting, setLdapTesting] = useState(false);
+  const [ldapTestResult, setLdapTestResult] = useState<LdapTestResult | null>(null);
   const [readonly, setReadonly] = useState<AdminReadonlySetting[] | null>(null);
   const [live, setLive] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -398,19 +464,6 @@ export function SettingsPage() {
     };
   }, [loadSettings]);
 
-  useEffect(() => {
-    if (!activeModal) return;
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
-      if (savingModal || logoBusy) return;
-      setActiveModal(null);
-      setModalError(null);
-      setModalMessage(null);
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeModal, logoBusy, savingModal]);
-
   const samlFields = useMemo(() => pickFields(editable, SAML_KEYS), [editable]);
   const ldapFields = useMemo(() => pickFields(editable, LDAP_KEYS), [editable]);
   const brandingFields = useMemo(() => pickFields(editable, SECTION_KEYS.branding), [editable]);
@@ -437,10 +490,13 @@ export function SettingsPage() {
 
   const modalDirty = activeModal === "audit" ? auditDirty : modalDirtyKeys.length > 0;
   const ssoUrls = useMemo(() => ssoUrlsFrom(modalDraft), [modalDraft]);
+  const ldapDraftStatus = useMemo(() => ldapChecklist(modalDraft), [modalDraft]);
   const ssoEnabled = (live.SAML_ENABLED ?? "false") === "true";
-  const ldapEnabled = (live.LDAP_ENABLED ?? "false") === "true";
+  const ldapLiveStatus = useMemo(() => ldapChecklist(live), [live]);
+  const ldapEnabled = ldapLiveStatus.enabled;
   const auditEnabledCount = auditSaved.size;
   const auditTotalCount = auditCatalog.length || auditSaved.size;
+  const modalBusy = savingModal || logoBusy || ldapTesting;
 
   function openSectionModal(id: Exclude<ModalId, "audit">) {
     const keys = id === "sso" ? SSO_KEYS : SECTION_KEYS[id];
@@ -449,6 +505,8 @@ export function SettingsPage() {
     setModalDraft(next);
     setModalError(null);
     setModalMessage(null);
+    setLdapTestResult(null);
+    setLdapTestUsername("");
     setActiveModal(id);
   }
 
@@ -460,11 +518,28 @@ export function SettingsPage() {
   }
 
   function closeModal() {
-    if (savingModal || logoBusy) return;
+    if (modalBusy) return;
+    if (modalDirty && !window.confirm("Discard unsaved changes?")) return;
     setActiveModal(null);
     setModalError(null);
     setModalMessage(null);
+    setLdapTestResult(null);
   }
+
+  useEffect(() => {
+    if (!activeModal) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      if (modalBusy) return;
+      if (modalDirty && !window.confirm("Discard unsaved changes?")) return;
+      setActiveModal(null);
+      setModalError(null);
+      setModalMessage(null);
+      setLdapTestResult(null);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeModal, modalBusy, modalDirty]);
 
   function toggleAuditAction(id: string) {
     setAuditDraft((prev) => {
@@ -568,6 +643,15 @@ export function SettingsPage() {
       setModalMessage("No changes to save.");
       return;
     }
+    if (activeModal === "sso") {
+      const ldapStatus = ldapChecklist(modalDraft);
+      if (ldapStatus.enabled && !ldapStatus.ready) {
+        setModalError(
+          "LDAP is enabled but incomplete. Fill every required LDAP field (or turn LDAP off), then Save.",
+        );
+        return;
+      }
+    }
     setSavingModal(true);
     setModalError(null);
     setModalMessage(null);
@@ -602,8 +686,20 @@ export function SettingsPage() {
                   : activeModal === "streaming"
                     ? "Streaming"
                     : "Advanced";
-      setModalMessage(`Saved ${result.updated.length} setting(s).`);
-      setHubMessage(`${label} settings saved.`);
+      const ldapLiveOn = (next.LDAP_ENABLED ?? "false") === "true";
+      const ldapNote =
+        activeModal === "sso"
+          ? ldapLiveOn
+            ? " LDAP is ON and saved — domain passwords work for usernames that are not local accounts."
+            : " LDAP is OFF and saved."
+          : "";
+      setModalMessage(`Saved ${result.updated.length} setting(s).${ldapNote}`);
+      setHubMessage(
+        activeModal === "sso"
+          ? `Sign-in settings saved · LDAP ${ldapLiveOn ? "on" : "off"}`
+          : `${label} settings saved.`,
+      );
+      setLdapTestResult(null);
     } catch (err) {
       setModalError(
         err instanceof ApiError && err.message && err.message !== err.code
@@ -612,6 +708,46 @@ export function SettingsPage() {
       );
     } finally {
       setSavingModal(false);
+    }
+  }
+
+  async function onTestLdap() {
+    if (activeModal !== "sso") return;
+    const status = ldapChecklist(modalDraft);
+    if (!status.ready) {
+      setModalError("Fill the required LDAP fields before testing.");
+      setLdapTestResult(null);
+      return;
+    }
+    setLdapTesting(true);
+    setModalError(null);
+    setModalMessage(null);
+    setLdapTestResult(null);
+    const settings: Record<string, string> = {};
+    for (const key of LDAP_KEYS) settings[key] = modalDraft[key] ?? "";
+    try {
+      const result = await testAdminLdapSettings(
+        {
+          settings,
+          username: ldapTestUsername.trim() || undefined,
+        },
+        me.csrfToken,
+      );
+      setLdapTestResult(result);
+      if (result.ok) {
+        setModalMessage(result.message);
+      } else {
+        setModalError(result.message);
+      }
+    } catch (err) {
+      setLdapTestResult(null);
+      setModalError(
+        err instanceof ApiError && err.message && err.message !== err.code
+          ? err.message
+          : "Unable to test LDAP settings.",
+      );
+    } finally {
+      setLdapTesting(false);
     }
   }
 
@@ -672,7 +808,11 @@ export function SettingsPage() {
               }))
             }
           />
-          <span>Enabled</span>
+          <span>
+            {field.key === "LDAP_TLS_REJECT_UNAUTHORIZED"
+              ? "Reject unauthorized certificates"
+              : "Enabled"}
+          </span>
         </label>
       );
     }
@@ -749,7 +889,7 @@ export function SettingsPage() {
               ) : null}
             </div>
             {compactHelp ? null : <p className="hint">{field.description}</p>}
-            {renderField(field, modalDraft, setModalDraft, savingModal || logoBusy)}
+            {renderField(field, modalDraft, setModalDraft, modalBusy)}
           </div>
         ))}
       </div>
@@ -825,7 +965,11 @@ export function SettingsPage() {
               status={[
                 "Local on",
                 ssoEnabled ? "SSO on" : "SSO off",
-                ldapEnabled ? "LDAP on" : "LDAP off",
+                ldapEnabled
+                  ? ldapLiveStatus.ready
+                    ? "LDAP on"
+                    : "LDAP incomplete"
+                  : "LDAP off",
               ]}
               onConfigure={() => openSectionModal("sso")}
             />
@@ -935,8 +1079,9 @@ export function SettingsPage() {
       {activeModal === "sso" ? (
         <SettingsModal
           title="Sign-in methods"
-          hint="Choose how people sign in. You can enable one, both, or neither — local accounts always stay available."
-          busy={savingModal}
+          hint="Choose how people sign in. You can enable one, both, or neither — local accounts always stay available. Changes apply only after you click Save."
+          busy={modalBusy}
+          busyLabel={ldapTesting ? "Testing…" : "Saving…"}
           dirty={modalDirty}
           error={modalError}
           message={modalMessage}
@@ -994,7 +1139,87 @@ export function SettingsPage() {
             title="Active Directory (LDAP / LDAPS)"
             summary="Users type their domain username and password on this portal. The server binds to your domain controller. No IdP callback or public VIP is required for LDAP — only network reachability from this host to AD."
           >
+            <div
+              className={`ldap-status-card${ldapDraftStatus.ready ? " ready" : ""}${ldapDraftStatus.enabled ? " enabled" : ""}`}
+            >
+              <div className="ldap-status-head">
+                <p className="ldap-status-title">LDAP readiness</p>
+                <p className="ldap-status-badge">
+                  {!ldapDraftStatus.ready
+                    ? "Incomplete"
+                    : ldapDraftStatus.enabled
+                      ? "Ready · will turn ON when saved"
+                      : "Ready · currently OFF until you enable + Save"}
+                </p>
+              </div>
+              <ul className="ldap-checklist">
+                {ldapDraftStatus.items.map((item) => (
+                  <li key={item.id} className={item.ok ? "ok" : "missing"}>
+                    <span className="ldap-check-mark" aria-hidden="true">
+                      {item.ok ? "✓" : "!"}
+                    </span>
+                    <span>
+                      <strong>{item.label}</strong>
+                      <span className="ldap-check-detail">{item.detail}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="hint ldap-status-hint">
+                Checking “Enable LDAP” alone is not enough — fill the fields, use Test settings, then
+                click Save. Unsaved edits are discarded if you close this dialog.
+              </p>
+            </div>
+
             {renderFieldList(ldapFields, { compactHelp: true })}
+
+            <div className="ldap-test-panel">
+              <div className="ldap-test-row">
+                <label className="ldap-test-user" htmlFor="ldap-test-username">
+                  Optional test username
+                  <HelpTip text="If set, the server binds with the service account then searches for this user. It does not try that user’s password." />
+                  <input
+                    id="ldap-test-username"
+                    type="text"
+                    value={ldapTestUsername}
+                    disabled={modalBusy}
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="e.g. jsmith or jsmith@corp.example.com"
+                    onChange={(event) => setLdapTestUsername(event.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="button-quiet"
+                  disabled={modalBusy || !ldapDraftStatus.ready}
+                  onClick={() => void onTestLdap()}
+                >
+                  {ldapTesting ? "Testing…" : "Test settings"}
+                </button>
+              </div>
+              {ldapTestResult ? (
+                <div
+                  className={`ldap-test-result${ldapTestResult.ok ? " ok" : " fail"}`}
+                  role="status"
+                >
+                  <p className="ldap-test-summary">{ldapTestResult.message}</p>
+                  <ul>
+                    {ldapTestResult.steps.map((step) => (
+                      <li key={step.id} className={step.ok ? "ok" : "fail"}>
+                        <strong>{step.label}</strong>
+                        <span>{step.detail}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <p className="hint">
+                  Test uses the values currently in this form (even before Save). Save is still
+                  required to turn LDAP on for real logins.
+                </p>
+              )}
+            </div>
           </SignInSection>
         </SettingsModal>
       ) : null}

@@ -3,17 +3,58 @@ import test from "node:test";
 import { createCompositeAuthProvider } from "../src/auth/composite-provider";
 import { ldapSubjectId } from "../src/auth/identity";
 import {
+  assertLdapReady,
   buildLdapSearchFilter,
   createLdapAuthProvider,
+  describeLdapReadiness,
   entryToUser,
   escapeLdapFilterValue,
   formatObjectGuid,
   mapLdapRole,
+  testLdapConnection,
   type LdapDirectory,
 } from "../src/auth/ldap-provider";
 import type { AuthProvider } from "../src/auth/provider";
 import type { LocalUserStore } from "../src/auth/local-user-store";
 import { testConfig } from "./helpers";
+
+test("assertLdapReady requires connection settings only when enabled", () => {
+  const config = testConfig();
+  assert.doesNotThrow(() => assertLdapReady(config));
+  config.ldapEnabled = true;
+  assert.throws(() => assertLdapReady(config), /LDAP_URL is required/);
+  config.ldapUrl = "ldaps://dc.example.com:636";
+  config.ldapBindDn = "CN=svc,DC=example,DC=com";
+  config.ldapBindPassword = "s3cret";
+  config.ldapSearchBase = "DC=example,DC=com";
+  assert.doesNotThrow(() => assertLdapReady(config));
+  config.ldapSearchFilter = "(sAMAccountName=fixed)";
+  assert.throws(() => assertLdapReady(config), /\{\{username\}\}/);
+});
+
+test("describeLdapReadiness reports missing pieces", () => {
+  const incomplete = describeLdapReadiness(testConfig());
+  assert.equal(incomplete.ready, false);
+  assert.ok(incomplete.items.some((item) => item.id === "url" && !item.ok));
+
+  const ready = describeLdapReadiness(
+    testConfig({
+      ldapUrl: "ldaps://dc.example.com:636",
+      ldapBindDn: "CN=svc,DC=example,DC=com",
+      ldapBindPassword: "s3cret",
+      ldapSearchBase: "DC=example,DC=com",
+    }),
+  );
+  assert.equal(ready.ready, true);
+});
+
+test("testLdapConnection fails fast on incomplete settings", async () => {
+  const result = await testLdapConnection(testConfig());
+  assert.equal(result.ok, false);
+  assert.match(result.message, /LDAP_URL is required/);
+  assert.equal(result.steps[0]?.id, "config");
+  assert.equal(result.steps[0]?.ok, false);
+});
 
 test("LDAP filter escapes username and substitutes placeholder", () => {
   const filter = buildLdapSearchFilter(

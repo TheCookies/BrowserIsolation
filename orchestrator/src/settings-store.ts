@@ -9,6 +9,7 @@ import {
   formatEnabledBrowsers,
   parseEnabledBrowsers,
 } from "./neko-browsers";
+import { assertLdapReady } from "./auth/ldap-provider";
 import { assertSamlReady, normalizeIdpCert, normalizePublicBaseUrl } from "./auth/saml";
 import {
   EDITABLE_SETTINGS,
@@ -462,6 +463,7 @@ export function createSettingsStore(db: Database.Database, config: Config): Sett
       }
       try {
         assertSamlReady(trial);
+        assertLdapReady(trial);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw Object.assign(new Error(message), { statusCode: 400 });
@@ -471,9 +473,13 @@ export function createSettingsStore(db: Database.Database, config: Config): Sett
       const now = Date.now();
       const tx = db.transaction(() => {
         for (const [key, raw] of entries) {
-          // Preserve PEM newlines for the IdP certificate.
+          // Preserve PEM newlines for the IdP certificate; keep bind password spacing intact.
           const next =
-            key === "SAML_IDP_CERT" ? String(raw).replace(/\r\n/g, "\n").trim() : String(raw).trim();
+            key === "SAML_IDP_CERT"
+              ? String(raw).replace(/\r\n/g, "\n").trim()
+              : key === "LDAP_BIND_PASSWORD"
+                ? String(raw)
+                : String(raw).trim();
           applySettingToConfig(config, key, next);
           upsert.run(key, next, now);
           updated.push(key);

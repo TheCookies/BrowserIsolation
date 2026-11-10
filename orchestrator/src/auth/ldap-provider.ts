@@ -161,6 +161,110 @@ export function entryToUser(
   };
 }
 
+export type LdapReadinessItem = {
+  id: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+};
+
+export type LdapTestStep = {
+  id: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+};
+
+export type LdapTestResult = {
+  ok: boolean;
+  message: string;
+  steps: LdapTestStep[];
+};
+
+/** Required fields for a usable LDAP connection (independent of LDAP_ENABLED). */
+export function assertLdapConfigured(config: Config): void {
+  const url = config.ldapUrl.trim();
+  if (!url) throw new Error("LDAP_URL is required.");
+  if (!/^ldaps?:\/\//i.test(url)) {
+    throw new Error("LDAP_URL must be an ldap:// or ldaps:// URI.");
+  }
+  if (!config.ldapBindDn.trim()) {
+    throw new Error("LDAP_BIND_DN is required.");
+  }
+  if (!config.ldapBindPassword) {
+    throw new Error("LDAP_BIND_PASSWORD is required.");
+  }
+  if (!config.ldapSearchBase.trim()) {
+    throw new Error("LDAP_SEARCH_BASE is required.");
+  }
+  const filter = config.ldapSearchFilter.trim();
+  if (filter && !filter.includes("{{username}}")) {
+    throw new Error('LDAP_SEARCH_FILTER must include "{{username}}".');
+  }
+}
+
+/** Refuse to enable LDAP until connection settings are complete. */
+export function assertLdapReady(config: Config): void {
+  if (!config.ldapEnabled) return;
+  assertLdapConfigured(config);
+}
+
+/** Checklist for the admin UI (draft or live values). */
+export function describeLdapReadiness(
+  config: Pick<
+    Config,
+    | "ldapEnabled"
+    | "ldapUrl"
+    | "ldapBindDn"
+    | "ldapBindPassword"
+    | "ldapSearchBase"
+    | "ldapSearchFilter"
+  >,
+): { ready: boolean; items: LdapReadinessItem[] } {
+  const filter = config.ldapSearchFilter.trim();
+  const items: LdapReadinessItem[] = [
+    {
+      id: "url",
+      label: "LDAP URL",
+      ok: Boolean(config.ldapUrl.trim()) && /^ldaps?:\/\//i.test(config.ldapUrl.trim()),
+      detail: config.ldapUrl.trim()
+        ? /^ldaps?:\/\//i.test(config.ldapUrl.trim())
+          ? config.ldapUrl.trim()
+          : "Must start with ldap:// or ldaps://"
+        : "Required (prefer ldaps://…:636)",
+    },
+    {
+      id: "bindDn",
+      label: "Bind DN",
+      ok: Boolean(config.ldapBindDn.trim()),
+      detail: config.ldapBindDn.trim() || "Service account DN required",
+    },
+    {
+      id: "bindPassword",
+      label: "Bind password",
+      ok: Boolean(config.ldapBindPassword),
+      detail: config.ldapBindPassword ? "Set" : "Required",
+    },
+    {
+      id: "searchBase",
+      label: "Search base",
+      ok: Boolean(config.ldapSearchBase.trim()),
+      detail: config.ldapSearchBase.trim() || "Required (e.g. DC=corp,DC=example,DC=com)",
+    },
+    {
+      id: "searchFilter",
+      label: "Search filter",
+      ok: !filter || filter.includes("{{username}}"),
+      detail: filter
+        ? filter.includes("{{username}}")
+          ? "Custom filter OK"
+          : 'Must include "{{username}}"'
+        : "Using default sAMAccountName / UPN filter",
+    },
+  ];
+  return { ready: items.every((item) => item.ok), items };
+}
+
 function createClient(config: Config): Client {
   const url = config.ldapUrl.trim();
   if (!url) throw new Error("LDAP_URL is required when LDAP is enabled.");
@@ -175,6 +279,152 @@ function createClient(config: Config): Client {
       rejectUnauthorized: config.ldapTlsRejectUnauthorized,
     },
   });
+}
+
+function ldapErrorDetail(error: unknown): string {
+  if (!(error instanceof Error)) return "Unknown LDAP error.";
+  const withCode = error as Error & { code?: string | number };
+  const code = withCode.code != null ? String(withCode.code) : "";
+  const message = error.message.replace(/\s+/g, " ").trim();
+  if (code && message && !message.includes(code)) return `${message} (${code})`;
+  return message || code || "Unknown LDAP error.";
+}
+
+/**
+ * Live directory probe for Admin → Sign-in.
+ * Always attempts service bind; optionally searches for a username (does not verify that user's password).
+ */
+export async function testLdapConnection(
+  config: Config,
+  options?: { username?: string },
+): Promise<LdapTestResult> {
+  const steps: LdapTestStep[] = [];
+  const push = (step: LdapTestStep) => {
+    steps.push(step);
+  };
+
+  try {
+    assertLdapConfigured(config);
+    push({
+      id: "config",
+      label: "Settings complete",
+      ok: true,
+      detail: "URL, bind DN, password, and search base are set.",
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Incomplete LDAP settings.";
+    push({ id: "config", label: "Settings complete", ok: false, detail });
+    return {
+      ok: false,
+      message: detail,
+      steps,
+    };
+  }
+
+  const client = createClient(config);
+  try {
+    try {
+      await client.bind(config.ldapBindDn.trim(), config.ldapBindPassword);
+      push({
+        id: "bind",
+        label: "Service account bind",
+        ok: true,
+        detail: `Bound as ${config.ldapBindDn.trim()}`,
+      });
+    } catch (error) {
+      const detail = ldapErrorDetail(error);
+      push({
+        id: "bind",
+        label: "Service account bind",
+        ok: false,
+        detail,
+      });
+      return {
+        ok: false,
+        message: `Could not bind to the directory: ${detail}`,
+        steps,
+      };
+    }
+
+    const username = options?.username?.trim() ?? "";
+    if (username) {
+      try {
+        const filter = buildLdapSearchFilter(config.ldapSearchFilter, username);
+        const usernameAttr = config.ldapUsernameAttr.trim() || DEFAULT_LDAP_USERNAME_ATTR;
+        const groupsAttr = config.ldapGroupsAttr.trim() || DEFAULT_LDAP_GROUPS_ATTR;
+        const result = await client.search(config.ldapSearchBase.trim(), {
+          scope: "sub",
+          filter,
+          sizeLimit: 2,
+          attributes: [usernameAttr, groupsAttr, "dn", "distinguishedName"],
+        });
+        const count = result.searchEntries.length;
+        if (count === 0) {
+          push({
+            id: "search",
+            label: "User search",
+            ok: false,
+            detail: `No entry matched filter for “${username}”. Check search base / filter.`,
+          });
+          return {
+            ok: false,
+            message: `Bound OK, but user “${username}” was not found.`,
+            steps,
+          };
+        }
+        if (count > 1) {
+          push({
+            id: "search",
+            label: "User search",
+            ok: false,
+            detail: `Filter matched ${count} entries for “${username}”; need exactly one.`,
+          });
+          return {
+            ok: false,
+            message: `Bound OK, but user search for “${username}” was ambiguous.`,
+            steps,
+          };
+        }
+        const dn = String(result.searchEntries[0]?.dn ?? "");
+        push({
+          id: "search",
+          label: "User search",
+          ok: true,
+          detail: `Found ${dn || username}`,
+        });
+      } catch (error) {
+        const detail = ldapErrorDetail(error);
+        push({ id: "search", label: "User search", ok: false, detail });
+        return {
+          ok: false,
+          message: `Bound OK, but user search failed: ${detail}`,
+          steps,
+        };
+      }
+    } else {
+      push({
+        id: "search",
+        label: "User search",
+        ok: true,
+        detail: "Skipped (optional test username not provided).",
+      });
+    }
+
+    const enabledNote = config.ldapEnabled
+      ? "LDAP is enabled — domain password login is active for non-local usernames."
+      : "Connection works. Enable LDAP and Save to accept domain password logins.";
+    return {
+      ok: true,
+      message: enabledNote,
+      steps,
+    };
+  } finally {
+    try {
+      await client.unbind();
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 export function createLdaptsDirectory(): LdapDirectory {
