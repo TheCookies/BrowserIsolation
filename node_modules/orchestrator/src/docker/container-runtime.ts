@@ -241,55 +241,55 @@ function runtimeView(config: Config, settings?: BrowserLaunchSettings): RuntimeV
   };
 }
 
-function capturePipeline(config: Pick<Config, "captureVideoCodec">): string[] {
+/**
+ * Build Neko capture env so the remote X11 pointer is never in the video stream.
+ *
+ * Our portal viewer uses the legacy Neko WS API + the local OS cursor. Neko 3.1.x
+ * with NEKO_LEGACY=true auto-creates a "legacy" pipeline that forces
+ * show-pointer=true (so the old UI has a cursor). That produces a second, lagged
+ * cursor on top of the local one. Avoid the singular NEKO_CAPTURE_VIDEO_PIPELINE
+ * shorthand (that path rewrites show-pointer to true for legacy) and instead
+ * publish both `main` and `legacy` pipelines with show-pointer=false hardcoded.
+ */
+export function buildNekoCapturePipelineEnv(
+  config: Pick<Config, "captureVideoCodec">,
+): string[] {
   // VP8 is the reliable default for browser WebRTC. Software H.264 often negotiates
   // but decodes as a black frame unless profile/packetization match the client.
-  // Hide the remote X11 pointer in the video stream so the client only sees
-  // their local OS cursor (avoids the double-cursor effect).
-  if (config.captureVideoCodec === "h264") {
-    const pipeline =
-      "ximagesrc display-name={display} show-pointer=false use-damage=false " +
-      "! videoconvert ! queue " +
-      "! video/x-raw,format=I420 " +
-      "! x264enc name=encoder threads=2 bitrate=3500 key-int-max=30 " +
-      "byte-stream=true tune=zerolatency speed-preset=ultrafast " +
-      "! video/x-h264,stream-format=byte-stream,profile=constrained-baseline " +
-      "! appsink name=appsink";
-    return [
-      "NEKO_CAPTURE_VIDEO_CODEC=h264",
-      "NEKO_CAPTURE_VIDEO_SHOW_POINTER=false",
-      `NEKO_CAPTURE_VIDEO_PIPELINE=${pipeline}`,
-    ];
-  }
+  const pipeline =
+    config.captureVideoCodec === "h264"
+      ? "ximagesrc display-name={display} show-pointer=false use-damage=false " +
+        "! videoconvert ! queue " +
+        "! video/x-raw,format=I420 " +
+        "! x264enc name=encoder threads=2 bitrate=3500 key-int-max=30 " +
+        "byte-stream=true tune=zerolatency speed-preset=ultrafast " +
+        "! video/x-h264,stream-format=byte-stream,profile=constrained-baseline " +
+        "! appsink name=appsink"
+      : // Tuned for 720p baseline with low-latency software encode; client may screen/set up to 1080p.
+        "ximagesrc display-name={display} show-pointer=false use-damage=false " +
+        "! video/x-raw,framerate=30/1 " +
+        "! videoconvert ! queue " +
+        "! vp8enc name=encoder target-bitrate=1996800 cpu-used=6 end-usage=cbr " +
+        "threads=2 deadline=1 undershoot=95 buffer-size=12288 buffer-initial-size=6144 " +
+        "buffer-optimal-size=9216 keyframe-max-dist=30 min-quantizer=4 max-quantizer=36 " +
+        "! appsink name=appsink";
 
-  // Tuned for 720p baseline with low-latency software encode; client may screen/set up to 1080p.
   const pipelines = JSON.stringify({
-    hq: {
-      fps: 30,
-      show_pointer: false,
-      gst_encoder: "vp8enc",
-      gst_params: {
-        "target-bitrate": "round(3072 * 650)",
-        "cpu-used": 6,
-        "end-usage": "cbr",
-        threads: 2,
-        deadline: 1,
-        undershoot: 95,
-        "buffer-size": "(3072 * 4)",
-        "buffer-initial-size": "(3072 * 2)",
-        "buffer-optimal-size": "(3072 * 3)",
-        "keyframe-max-dist": 30,
-        "min-quantizer": 4,
-        "max-quantizer": 36,
-      },
-    },
+    main: { gst_pipeline: pipeline },
+    // Legacy WS clients request this id; keep the pointer off here too.
+    legacy: { gst_pipeline: pipeline },
   });
+
   return [
-    "NEKO_CAPTURE_VIDEO_CODEC=vp8",
-    "NEKO_CAPTURE_VIDEO_IDS=hq",
+    `NEKO_CAPTURE_VIDEO_CODEC=${config.captureVideoCodec === "h264" ? "h264" : "vp8"}`,
+    "NEKO_CAPTURE_VIDEO_IDS=main",
     "NEKO_CAPTURE_VIDEO_SHOW_POINTER=false",
     `NEKO_CAPTURE_VIDEO_PIPELINES=${pipelines}`,
   ];
+}
+
+function capturePipeline(config: Pick<Config, "captureVideoCodec">): string[] {
+  return buildNekoCapturePipelineEnv(config);
 }
 
 function memberProfileJson(allowClipboard: boolean): string {
@@ -314,7 +314,7 @@ function nekoEnv(
     `NEKO_MEMBER_MULTIUSER_ADMIN_PROFILE=${clipboardProfile}`,
     `NEKO_MEMBER_MULTIUSER_USER_PROFILE=${clipboardProfile}`,
     "NEKO_SESSION_IMPLICIT_HOSTING=true",
-    // Do not draw other viewers' cursors on top of the stream.
+    // Collaborative cursor overlays are unused; local OS cursor is the only pointer.
     "NEKO_SESSION_INACTIVE_CURSORS=false",
     // Legacy /ws expects token auth, not cookies (see Neko config.yml notes for legacy API).
     "NEKO_SESSION_COOKIE_ENABLED=false",
