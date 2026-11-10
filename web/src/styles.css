@@ -1202,8 +1202,8 @@ td.empty {
 .modal-panel-sso {
   display: flex;
   flex-direction: column;
-  width: min(40rem, 100%);
-  max-height: min(86vh, 46rem);
+  width: min(44rem, 100%);
+  max-height: min(90vh, 52rem);
   padding: 0;
   overflow: hidden;
 }
@@ -2772,8 +2772,74 @@ td.empty {
   border-color: var(--accent);
 }
 
+.signin-overview {
+  margin: 0 0 1rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #f8fafc;
+}
+
+.signin-overview p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.signin-overview strong {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.signin-section {
+  display: grid;
+  gap: 0.85rem;
+  margin: 0 0 1.15rem;
+  padding: 1rem 1.05rem 1.05rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+
+.signin-section:last-child {
+  margin-bottom: 0.25rem;
+}
+
+.signin-section-head {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.signin-section-eyebrow {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+
+.signin-section-head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+}
+
+.signin-section-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.signin-section-body {
+  display: grid;
+  gap: 0.85rem;
+}
+
 .sso-modal-grid {
-  margin-top: 0.85rem;
+  margin-top: 0;
 }
 
 .sso-modal-grid .settings-field {
@@ -2783,7 +2849,7 @@ td.empty {
 .sso-sp-card {
   display: grid;
   gap: 0.55rem;
-  margin: 0.15rem 0 0.25rem;
+  margin: 0;
   padding: 0.85rem 0.95rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -3018,6 +3084,8 @@ html[data-theme="dark"] .settings-card-media,
 html[data-theme="dark"] .settings-card-configure,
 html[data-theme="dark"] .sso-configure,
 html[data-theme="dark"] .sso-sp-card,
+html[data-theme="dark"] .signin-overview,
+html[data-theme="dark"] .signin-section,
 html[data-theme="dark"] .branding-modal-layout,
 html[data-theme="dark"] .persist-toggle,
 html[data-theme="dark"] .feature,

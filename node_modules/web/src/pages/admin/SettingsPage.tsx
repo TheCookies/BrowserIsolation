@@ -46,7 +46,7 @@ const SECTION_KEYS: Record<Exclude<ModalId, "sso" | "audit">, readonly string[]>
   advanced: ["TRUST_PROXY", "COOKIE_SECURE"],
 };
 
-const SSO_KEYS = [
+const SAML_KEYS = [
   "SAML_ENABLED",
   "PUBLIC_BASE_URL",
   "SAML_ENTRY_POINT",
@@ -56,6 +56,9 @@ const SSO_KEYS = [
   "SAML_USERNAME_ATTR",
   "SAML_GROUPS_ATTR",
   "SAML_ADMIN_GROUP",
+] as const;
+
+const LDAP_KEYS = [
   "LDAP_ENABLED",
   "LDAP_URL",
   "LDAP_BIND_DN",
@@ -67,6 +70,8 @@ const SSO_KEYS = [
   "LDAP_ADMIN_GROUP",
   "LDAP_TLS_REJECT_UNAUTHORIZED",
 ] as const;
+
+const SSO_KEYS = [...SAML_KEYS, ...LDAP_KEYS] as const;
 
 const SSO_HELP: Record<string, string> = {
   SAML_ENABLED:
@@ -154,6 +159,29 @@ function HelpTip({ text }: { text: string }) {
         {text}
       </span>
     </span>
+  );
+}
+
+function SignInSection({
+  eyebrow,
+  title,
+  summary,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  summary: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="signin-section">
+      <header className="signin-section-head">
+        <p className="signin-section-eyebrow">{eyebrow}</p>
+        <h3>{title}</h3>
+        <p className="signin-section-summary">{summary}</p>
+      </header>
+      <div className="signin-section-body">{children}</div>
+    </section>
   );
 }
 
@@ -383,7 +411,8 @@ export function SettingsPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [activeModal, logoBusy, savingModal]);
 
-  const ssoFields = useMemo(() => pickFields(editable, SSO_KEYS), [editable]);
+  const samlFields = useMemo(() => pickFields(editable, SAML_KEYS), [editable]);
+  const ldapFields = useMemo(() => pickFields(editable, LDAP_KEYS), [editable]);
   const brandingFields = useMemo(() => pickFields(editable, SECTION_KEYS.branding), [editable]);
   const securityFields = useMemo(() => pickFields(editable, SECTION_KEYS.security), [editable]);
   const sessionsFields = useMemo(() => pickFields(editable, SECTION_KEYS.sessions), [editable]);
@@ -696,9 +725,10 @@ export function SettingsPage() {
     );
   }
 
-  function renderFieldList(fields: AdminSettingField[]) {
+  function renderFieldList(fields: AdminSettingField[], options?: { compactHelp?: boolean }) {
+    const compactHelp = Boolean(options?.compactHelp);
     return (
-      <div className="settings-grid sso-modal-grid">
+      <div className={`settings-grid${compactHelp ? " sso-modal-grid" : ""}`}>
         {fields.map((field) => (
           <div
             key={field.key}
@@ -710,7 +740,7 @@ export function SettingsPage() {
           >
             <div className="settings-field-label">
               <label htmlFor={`setting-${field.key}`}>{field.label}</label>
-              {activeModal === "sso" ? (
+              {compactHelp ? (
                 <HelpTip text={SSO_HELP[field.key] ?? field.description} />
               ) : null}
               {field.overridden ? <span className="settings-tag">saved</span> : null}
@@ -718,7 +748,7 @@ export function SettingsPage() {
                 <span className="settings-tag muted">new sessions</span>
               ) : null}
             </div>
-            {activeModal === "sso" ? null : <p className="hint">{field.description}</p>}
+            {compactHelp ? null : <p className="hint">{field.description}</p>}
             {renderField(field, modalDraft, setModalDraft, savingModal || logoBusy)}
           </div>
         ))}
@@ -791,11 +821,11 @@ export function SettingsPage() {
             />
             <SettingsCard
               title="Sign-in"
-              hint="SAML SSO and optional Active Directory LDAP/LDAPS password login."
+              hint="Local accounts always work. Optionally add SAML SSO and/or Active Directory LDAP."
               status={[
+                "Local on",
                 ssoEnabled ? "SSO on" : "SSO off",
                 ldapEnabled ? "LDAP on" : "LDAP off",
-                "Local login available",
               ]}
               onConfigure={() => openSectionModal("sso")}
             />
@@ -904,8 +934,8 @@ export function SettingsPage() {
 
       {activeModal === "sso" ? (
         <SettingsModal
-          title="Sign-in / SSO"
-          hint="Configure SAML SSO and/or Active Directory LDAP. Local accounts always remain available."
+          title="Sign-in methods"
+          hint="Choose how people sign in. You can enable one, both, or neither — local accounts always stay available."
           busy={savingModal}
           dirty={modalDirty}
           error={modalError}
@@ -914,37 +944,58 @@ export function SettingsPage() {
           onSave={() => void onSaveSection()}
           wide
         >
-          <div className="sso-sp-card">
-            <p className="sso-sp-heading">
-              Values to paste into your IdP
-              <HelpTip text="Register this portal in Entra, Google Workspace, or any SAML 2.0 IdP using these service-provider URLs." />
+          <div className="signin-overview">
+            <p>
+              <strong>Local accounts</strong> are managed under Admin → Users and always work as
+              break-glass access.
             </p>
-            <CopyRow
-              label="ACS / Reply URL"
-              value={ssoUrls.acsUrl}
-              help={SP_HELP.acsUrl}
-              copyable={ssoUrls.ready}
-            />
-            <CopyRow
-              label="Metadata URL"
-              value={ssoUrls.metadataUrl}
-              help={SP_HELP.metadataUrl}
-              copyable={ssoUrls.ready}
-            />
-            <CopyRow
-              label="Entity ID / Audience"
-              value={ssoUrls.entityId}
-              help={SP_HELP.entityId}
-              copyable={ssoUrls.ready}
-            />
-            <CopyRow
-              label="Name ID format"
-              value="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
-              help={SP_HELP.nameId}
-              copyable
-            />
           </div>
-          {renderFieldList(ssoFields)}
+
+          <SignInSection
+            eyebrow="Option A"
+            title="Single Sign-On (SAML)"
+            summary="Shows a “Sign in with SSO” button. Users authenticate at Google, Microsoft Entra, Okta, or another SAML identity provider, then return here. Needs a stable HTTPS portal URL (often a public VIP if users are off-network)."
+          >
+            <div className="sso-sp-card">
+              <p className="sso-sp-heading">
+                Values to paste into your IdP
+                <HelpTip text="Register this portal in Entra, Google Workspace, or any SAML 2.0 IdP using these service-provider URLs. They are derived from Public base URL below." />
+              </p>
+              <CopyRow
+                label="ACS / Reply URL"
+                value={ssoUrls.acsUrl}
+                help={SP_HELP.acsUrl}
+                copyable={ssoUrls.ready}
+              />
+              <CopyRow
+                label="Metadata URL"
+                value={ssoUrls.metadataUrl}
+                help={SP_HELP.metadataUrl}
+                copyable={ssoUrls.ready}
+              />
+              <CopyRow
+                label="Entity ID / Audience"
+                value={ssoUrls.entityId}
+                help={SP_HELP.entityId}
+                copyable={ssoUrls.ready}
+              />
+              <CopyRow
+                label="Name ID format"
+                value="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
+                help={SP_HELP.nameId}
+                copyable
+              />
+            </div>
+            {renderFieldList(samlFields, { compactHelp: true })}
+          </SignInSection>
+
+          <SignInSection
+            eyebrow="Option B"
+            title="Active Directory (LDAP / LDAPS)"
+            summary="Users type their domain username and password on this portal. The server binds to your domain controller. No IdP callback or public VIP is required for LDAP — only network reachability from this host to AD."
+          >
+            {renderFieldList(ldapFields, { compactHelp: true })}
+          </SignInSection>
         </SettingsModal>
       ) : null}
 
