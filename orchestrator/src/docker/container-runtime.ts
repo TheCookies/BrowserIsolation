@@ -493,6 +493,8 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
     const hostDir = config.profileDataDir
       ? profileHostDir(config.profileDataDir, subjectId, browser)
       : null;
+    const hostNorm = hostDir ? hostDir.replace(/\\/g, "/").replace(/\/+$/, "") : "";
+    const hostSuffix = `/${subjectKey}/${browser}`;
     try {
       const managed = await docker.listContainers({
         all: true,
@@ -507,7 +509,11 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
           const mounts = inspection.Mounts ?? [];
           const hit = mounts.some((mount) => {
             if (mount.Type === "volume" && mount.Name === volumeName) return true;
-            if (hostDir && mount.Type === "bind" && mount.Source === hostDir) return true;
+            const source = (mount.Source ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
+            if (!source) return false;
+            if (hostNorm && source === hostNorm) return true;
+            // Podman may report a resolved/different Source; match by subject key path.
+            if (source.endsWith(hostSuffix) || source.includes(`${hostSuffix}/`)) return true;
             return false;
           });
           if (hit) ids.add(item.Id);
@@ -521,21 +527,28 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
 
     for (const id of ids) {
       try {
-        await thisRemove(id);
+        // Force-remove immediately — stuck Firefox holding .parentlock will not
+        // exit cleanly within a stop grace period.
+        await thisRemove(id, { quick: true });
       } catch {
         /* best-effort */
       }
     }
   }
 
-  async function thisRemove(containerId: string): Promise<void> {
+  async function thisRemove(
+    containerId: string,
+    options?: { quick?: boolean },
+  ): Promise<void> {
     const container = docker.getContainer(containerId);
-    try {
-      await container.stop({ t: 20 });
-    } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode;
-      if (statusCode !== 304 && statusCode !== 404) {
-        /* force remove below */
+    if (!options?.quick) {
+      try {
+        await container.stop({ t: 20 });
+      } catch (error) {
+        const statusCode = (error as { statusCode?: number }).statusCode;
+        if (statusCode !== 304 && statusCode !== 404) {
+          /* force remove below */
+        }
       }
     }
     try {

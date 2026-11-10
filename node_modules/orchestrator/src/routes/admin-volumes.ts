@@ -38,19 +38,60 @@ export type UserProfileUsage = {
   sizeBytes: number;
 };
 
+type OwnerRef = { subjectId: string; username: string | null };
+
+/**
+ * Map profileStorageKey → owner. Local users alone miss LDAP/SAML identities;
+ * also learn from browser sessions, portal sessions, and preference rows.
+ */
+export function buildProfileOwnerIndex(deps: AppDeps): Map<string, OwnerRef> {
+  const usersByKey = new Map<string, OwnerRef>();
+
+  function remember(subjectId: string, username: string | null, preferUsername = false) {
+    const id = subjectId.trim();
+    if (!id) return;
+    const key = profileStorageKey(id);
+    const existing = usersByKey.get(key);
+    if (!existing) {
+      usersByKey.set(key, { subjectId: id, username });
+      return;
+    }
+    if (preferUsername && username && !existing.username) {
+      usersByKey.set(key, { subjectId: existing.subjectId || id, username });
+    } else if (username && (!existing.username || preferUsername)) {
+      usersByKey.set(key, {
+        subjectId: existing.subjectId || id,
+        username,
+      });
+    } else if (!existing.subjectId) {
+      usersByKey.set(key, { subjectId: id, username: existing.username });
+    }
+  }
+
+  for (const user of deps.localUsers.list()) {
+    remember(user.subjectId, user.username, true);
+  }
+  for (const session of deps.browsers.list()) {
+    if (session.ownerSubjectId) {
+      remember(session.ownerSubjectId, session.ownerUsername, true);
+    }
+  }
+  for (const session of deps.sessions.listActive()) {
+    remember(session.subjectId, session.username, true);
+  }
+  for (const prefs of deps.preferences.list()) {
+    remember(prefs.subjectId, null, false);
+  }
+
+  return usersByKey;
+}
+
 async function collectAdminProfileVolumes(deps: AppDeps): Promise<{
   volumes: AdminProfileVolume[];
   errors: Array<{ workerId: string; error: string }>;
 }> {
-  const { workerStore, localUsers, preferences, runtime, config } = deps;
-
-  const usersByKey = new Map<string, { subjectId: string; username: string }>();
-  for (const user of localUsers.list()) {
-    usersByKey.set(profileStorageKey(user.subjectId), {
-      subjectId: user.subjectId,
-      username: user.username,
-    });
-  }
+  const { workerStore, preferences, runtime, config } = deps;
+  const usersByKey = buildProfileOwnerIndex(deps);
 
   const volumes: AdminProfileVolume[] = [];
   const errors: Array<{ workerId: string; error: string }> = [];
@@ -214,13 +255,18 @@ export function registerAdminVolumeRoutes(app: FastifyInstance, deps: AppDeps): 
         });
       }
 
-      // Best-effort sticky placement cleanup when we can map the volume to a user.
-      let username: string | null = null;
-      for (const user of deps.localUsers.list()) {
-        if (profileStorageKey(user.subjectId) !== parsed.subjectKey) continue;
-        username = user.username;
-        deps.workerStore.clearProfilePlacement(user.subjectId, parsed.browser);
-        break;
+      // Best-effort sticky placement cleanup (local + LDAP/SAML owners).
+      const owner = buildProfileOwnerIndex(deps).get(parsed.subjectKey);
+      let username: string | null = owner?.username ?? null;
+      if (owner?.subjectId) {
+        deps.workerStore.clearProfilePlacement(owner.subjectId, parsed.browser);
+      } else {
+        for (const user of deps.localUsers.list()) {
+          if (profileStorageKey(user.subjectId) !== parsed.subjectKey) continue;
+          username = user.username;
+          deps.workerStore.clearProfilePlacement(user.subjectId, parsed.browser);
+          break;
+        }
       }
 
       audit.record({

@@ -137,18 +137,50 @@ export function resolveLdapGroups(entry: LdapUserEntry, groupsAttr: string): str
   return asStringList(entry.attributes[key]);
 }
 
+function asObjectGuidBuffer(
+  value: Buffer | Buffer[] | string | string[] | Uint8Array | undefined,
+): Buffer | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return null;
+  if (Buffer.isBuffer(raw) && raw.length === 16) return raw;
+  if (raw instanceof Uint8Array && raw.length === 16) return Buffer.from(raw);
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    // ldapts sometimes yields a binary string of length 16.
+    if (trimmed.length === 16) {
+      const buf = Buffer.from(trimmed, "binary");
+      if (buf.length === 16) return buf;
+    }
+    // Already-formatted GUID from some directories.
+    if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(trimmed)) {
+      return null; // handled as string id below
+    }
+    try {
+      const b64 = Buffer.from(trimmed, "base64");
+      if (b64.length === 16) return b64;
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
 export function resolveLdapSubjectId(entry: LdapUserEntry): string {
   const guidKey = Object.keys(entry.attributes).find(
     (name) => name.toLowerCase() === "objectguid",
   );
   if (guidKey) {
     const raw = entry.attributes[guidKey];
-    const buf = Array.isArray(raw) ? raw[0] : raw;
-    if (Buffer.isBuffer(buf) && buf.length > 0) {
+    const buf = asObjectGuidBuffer(raw as Buffer | Buffer[] | string | string[] | undefined);
+    if (buf) {
       return ldapSubjectId(formatObjectGuid(buf));
     }
-    if (typeof buf === "string" && buf.trim()) {
-      return ldapSubjectId(buf.trim());
+    const single = Array.isArray(raw) ? raw[0] : raw;
+    if (typeof single === "string" && single.trim()) {
+      const trimmed = single.trim();
+      if (/^[0-9a-fA-F-]{36}$/.test(trimmed)) {
+        return ldapSubjectId(trimmed.toLowerCase());
+      }
     }
   }
   return ldapSubjectId(entry.dn);

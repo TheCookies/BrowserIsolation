@@ -1050,7 +1050,7 @@ tbody tr {
 }
 
 tbody tr:hover {
-  background: #f5f8fb;
+  background: var(--surface-hover);
 }
 
 tbody tr:last-child td {
@@ -1063,7 +1063,7 @@ th {
   text-transform: uppercase;
   color: var(--muted);
   font-weight: 600;
-  background: #f3f7fb;
+  background: var(--surface-muted);
   font-family: var(--font-display);
 }
 
@@ -1081,7 +1081,7 @@ td.empty {
   border-radius: 6px;
   font-size: 0.78rem;
   font-weight: 600;
-  background: #eef2f6;
+  background: var(--surface-hover);
   color: var(--ink-soft);
 }
 
@@ -3357,4 +3357,34 @@ html[data-theme="dark"] .profile-theme-switch::after {
 html[data-theme="dark"] code,
 html[data-theme="dark"] .copy-row-value code {
   color: var(--accent-ink);
+}
+
+html[data-theme="dark"] th {
+  background: #1a2330;
+  color: var(--muted);
+}
+
+html[data-theme="dark"] tbody tr:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme="dark"] .badge {
+  background: #243041;
+  color: var(--ink-soft);
+}
+
+html[data-theme="dark"] .badge.chrome {
+  background: rgba(61, 120, 200, 0.18);
+  color: #9ec5ff;
+}
+
+html[data-theme="dark"] .badge.firefox,
+html[data-theme="dark"] .badge.brave {
+  background: rgba(201, 133, 26, 0.18);
+  color: #f0c48a;
+}
+
+html[data-theme="dark"] .loading-line {
+  background: linear-gradient(90deg, #1a2330 20%, #243041 50%, #1a2330 80%);
+  background-size: 200% 100%;
 }

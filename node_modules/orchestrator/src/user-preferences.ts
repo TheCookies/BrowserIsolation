@@ -9,6 +9,8 @@ export type UserPreferences = {
 
 export type UserPreferencesStore = {
   get(subjectId: string): UserPreferences;
+  /** All stored preference rows (for admin volume ownership / LDAP lookup). */
+  list(): UserPreferences[];
   setPersistProfile(subjectId: string, persistProfile: boolean): UserPreferences;
   setDarkMode(subjectId: string, darkMode: boolean): UserPreferences;
 };
@@ -23,6 +25,9 @@ type PrefsRow = {
 export function createUserPreferencesStore(db: Database.Database): UserPreferencesStore {
   const select = db.prepare<[string], PrefsRow>(
     `SELECT subject_id, persist_profile, dark_mode, updated_at FROM user_preferences WHERE subject_id = ?`,
+  );
+  const selectAll = db.prepare<[], PrefsRow>(
+    `SELECT subject_id, persist_profile, dark_mode, updated_at FROM user_preferences`,
   );
   const upsert = db.prepare(
     `INSERT INTO user_preferences (subject_id, persist_profile, dark_mode, updated_at)
@@ -64,6 +69,10 @@ export function createUserPreferencesStore(db: Database.Database): UserPreferenc
 
   return {
     get,
+
+    list() {
+      return selectAll.all().map(rowToPrefs);
+    },
 
     setPersistProfile(subjectId, persistProfile) {
       const current = get(subjectId);

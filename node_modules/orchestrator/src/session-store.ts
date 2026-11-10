@@ -26,6 +26,8 @@ type SessionRow = {
 export type SessionStore = {
   create(user: AuthenticatedUser): PortalSession;
   get(id: string): PortalSession | null;
+  /** Active (non-expired) portal sessions — used to map LDAP profile volumes to usernames. */
+  listActive(now?: number): PortalSession[];
   delete(id: string): void;
   deleteForUsername(username: string): number;
   updateRoleForUsername(username: string, role: Role): number;
@@ -45,10 +47,26 @@ export function createSessionStore(
     `SELECT id, username, role, subject_id, csrf_token, created_at, expires_at
      FROM portal_sessions WHERE id = ?`,
   );
+  const selectActive = db.prepare<[number], SessionRow>(
+    `SELECT id, username, role, subject_id, csrf_token, created_at, expires_at
+     FROM portal_sessions WHERE expires_at > ?`,
+  );
   const remove = db.prepare(`DELETE FROM portal_sessions WHERE id = ?`);
   const removeForUser = db.prepare(`DELETE FROM portal_sessions WHERE username = ?`);
   const updateRoleForUser = db.prepare(`UPDATE portal_sessions SET role = ? WHERE username = ?`);
   const removeExpired = db.prepare(`DELETE FROM portal_sessions WHERE expires_at <= ?`);
+
+  function mapRow(row: SessionRow): PortalSession {
+    return {
+      id: row.id,
+      username: row.username,
+      role: row.role as Role,
+      subjectId: row.subject_id?.trim() || localSubjectId(row.username),
+      csrfToken: row.csrf_token,
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+    };
+  }
 
   return {
     create(user) {
@@ -81,16 +99,14 @@ export function createSessionStore(
         remove.run(id);
         return null;
       }
-      const subjectId = row.subject_id?.trim() || localSubjectId(row.username);
-      return {
-        id: row.id,
-        username: row.username,
-        role: row.role,
-        subjectId,
-        csrfToken: row.csrf_token,
-        createdAt: row.created_at,
-        expiresAt: row.expires_at,
-      };
+      return mapRow(row);
+    },
+
+    listActive(now = Date.now()) {
+      return selectActive
+        .all(now)
+        .filter((row) => isRole(row.role))
+        .map(mapRow);
     },
 
     delete(id) {

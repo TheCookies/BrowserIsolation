@@ -152,8 +152,12 @@ export function StoragePage() {
                     <tr key={row.subjectKey}>
                       <td>
                         {row.username ?? (
-                          <span className="hint" title={row.subjectKey}>
-                            unknown
+                          <span className="hint" title={row.subjectId ?? row.subjectKey}>
+                            {row.subjectId?.startsWith("ldap:")
+                              ? "LDAP user"
+                              : row.subjectId?.startsWith("saml:")
+                                ? "SSO user"
+                                : "unknown"}
                           </span>
                         )}
                       </td>
@@ -194,8 +198,15 @@ export function StoragePage() {
                       <tr key={key}>
                         <td>
                           {volume.username ?? (
-                            <span className="hint" title={volume.subjectKey ?? undefined}>
-                              unknown
+                            <span
+                              className="hint"
+                              title={volume.subjectId ?? volume.subjectKey ?? undefined}
+                            >
+                              {volume.subjectId?.startsWith("ldap:")
+                                ? "LDAP user"
+                                : volume.subjectId?.startsWith("saml:")
+                                  ? "SSO user"
+                                  : "unknown"}
                             </span>
                           )}
                         </td>
