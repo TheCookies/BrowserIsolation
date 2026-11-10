@@ -60,11 +60,14 @@ export function LoginPage({ onSuccess }: { onSuccess: (me: Me) => void }) {
   const samlEnabled = Boolean(methods?.saml);
   const ldapEnabled = Boolean(methods?.ldap);
   const passwordHint = samlEnabled
-    ? "Use your organization account, or a local break-glass password."
+    ? ldapEnabled
+      ? "Use Sign in with SSO, your domain credentials, or a local break-glass account."
+      : "Use your organization account, or a local break-glass password."
     : ldapEnabled
-      ? "Use your domain credentials or a local portal account."
+      ? "Please sign in with your domain credentials (username and password)."
       : "Use the account issued for this portal.";
   const passwordDivider = ldapEnabled ? "or domain / local password" : "or local account";
+  const usernamePlaceholder = ldapEnabled ? "Domain username (e.g. jsmith)" : undefined;
 
   return (
     <main className="login-page">
@@ -114,7 +117,13 @@ export function LoginPage({ onSuccess }: { onSuccess: (me: Me) => void }) {
           <form onSubmit={onSubmit}>
             <label>
               Username
-              <input name="username" autoComplete="username" required maxLength={64} />
+              <input
+                name="username"
+                autoComplete="username"
+                required
+                maxLength={64}
+                placeholder={usernamePlaceholder}
+              />
             </label>
             <label>
               Password
