@@ -14,6 +14,7 @@ import {
 } from "./labels";
 import { policyArchiveFromFile } from "./policy-tar";
 import { clearProfileLockFiles, PROFILE_LOCK_BASENAMES } from "./profile-locks";
+import { ensureWritableProfileHostDir } from "./profile-permissions";
 import { profileContainerPath, profileHostDir, profileHostDirFromVolumeName } from "./profile-paths";
 
 export type ImagePullResult = {
@@ -705,7 +706,9 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
         });
         if (config.profileDataDir) {
           const hostDir = profileHostDir(config.profileDataDir, input.subjectId, input.browser);
-          mkdirSync(hostDir, { recursive: true });
+          // Neko runs as UID 1000 — root-owned bind mounts cannot be written
+          // (empty 0B profiles + Firefox “already running” lock errors).
+          ensureWritableProfileHostDir(hostDir);
           // :Z so SELinux allows the Neko user to write cookies/config on the HDD.
           binds.push(`${hostDir}:${target}:Z`);
         } else {
