@@ -384,3 +384,57 @@ test("resolveProxyTarget caches docker inspect results briefly", async () => {
   db.close();
   rmSync(dir, { recursive: true, force: true });
 });
+
+test("concurrent LDAP users each get a browser and a distinct WebRTC port", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rbi-ldap-parallel-"));
+  const config = testConfig(dir);
+  const db = openDatabase(config.databasePath);
+  const preferences = createUserPreferencesStore(db);
+  const store = createBrowserSessionStore(db);
+  const containers = new Map<string, BrowserContainerInfo>();
+  const runtime = makeRuntime(containers);
+  const portsInUse = new Map<string, number>();
+  const originalCreate = runtime.createBrowserContainer.bind(runtime);
+  runtime.createBrowserContainer = async (input) => {
+    // Hold the create open so the second launch allocates before the first row exists.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    if ([...portsInUse.values()].includes(input.webrtcPort)) {
+      throw new Error("port is already allocated");
+    }
+    const info = await originalCreate(input);
+    portsInUse.set(info.id, input.webrtcPort);
+    return info;
+  };
+  const originalRemove = runtime.remove.bind(runtime);
+  runtime.remove = async (containerId) => {
+    portsInUse.delete(containerId);
+    return originalRemove(containerId);
+  };
+
+  const { placement } = testPlacement(db, config, runtime);
+  const service = createBrowserSessionService({ config, store, placement, neko, preferences });
+  const alice = { username: "alice", role: "user" as const, subjectId: "ldap:guid-alice" };
+  const bob = { username: "bob", role: "user" as const, subjectId: "ldap:guid-bob" };
+
+  const [first, second] = await Promise.all([
+    service.launch(alice, "firefox"),
+    service.launch(bob, "firefox"),
+  ]);
+
+  assert.equal(first.reconnect, false);
+  assert.equal(second.reconnect, false);
+  assert.notEqual(first.session.id, second.session.id);
+  assert.notEqual(first.session.ownerSubjectId, second.session.ownerSubjectId);
+  assert.notEqual(first.session.webrtcPort, second.session.webrtcPort);
+  assert.equal(store.list().length, 2);
+
+  await service.destroyForUser(alice);
+  await service.destroyForUser(bob);
+  const cara = { username: "cara", role: "user" as const, subjectId: "ldap:guid-cara" };
+  const third = await service.launch(cara, "firefox");
+  assert.equal(third.reconnect, false);
+  assert.equal(store.list().length, 1);
+
+  db.close();
+  rmSync(dir, { recursive: true, force: true });
+});

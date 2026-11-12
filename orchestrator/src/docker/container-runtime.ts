@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import Docker from "dockerode";
@@ -412,6 +413,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function networkAlreadyExists(error: unknown): boolean {
+  const statusCode = (error as { statusCode?: number }).statusCode;
+  if (statusCode === 409) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /already exists/i.test(message);
+}
+
 function assertPathInside(root: string, candidate: string): string {
   const resolvedRoot = path.resolve(root);
   const resolved = path.resolve(candidate);
@@ -594,7 +602,7 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
     // Mountpoint not visible from this process (common in some Podman setups).
     // Use a one-shot helper with the browser image (already local) to rm locks.
     const lockPaths = PROFILE_LOCK_BASENAMES.map((name) => `/profile/${name}`).join(" ");
-    const helperName = `rbi-profile-unlock-${Date.now().toString(36)}`;
+    const helperName = `rbi-profile-unlock-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
     let helperId: string | null = null;
     try {
       const helper = await docker.createContainer({
@@ -664,12 +672,23 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
       });
       const exact = networks.find((network) => network.Name === config.browserNetwork);
       if (exact) return;
-      await docker.createNetwork({
-        Name: config.browserNetwork,
-        Driver: "bridge",
-        CheckDuplicate: true,
-        Labels: { [LABEL_MANAGED]: "true" },
-      });
+      try {
+        await docker.createNetwork({
+          Name: config.browserNetwork,
+          Driver: "bridge",
+          CheckDuplicate: true,
+          Labels: { [LABEL_MANAGED]: "true" },
+        });
+      } catch (error) {
+        // Two launches can both observe "network missing" and create together.
+        // The loser gets "already exists"; that network is the one we wanted.
+        if (networkAlreadyExists(error)) return;
+        const again = await docker.listNetworks({
+          filters: { name: [config.browserNetwork] },
+        });
+        if (again.some((network) => network.Name === config.browserNetwork)) return;
+        throw error;
+      }
     },
 
     async createBrowserContainer(input) {

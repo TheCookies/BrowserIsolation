@@ -67,6 +67,38 @@ function parseIceServers(raw: string): IceServerConfig[] {
 
 const PROXY_TARGET_TTL_MS = 10_000;
 
+/**
+ * Same-user launches share one queue so a second click waits and reconnects.
+ * Different users (including simultaneous LDAP logins) stay parallel.
+ */
+function enqueueLaunch<T>(chains: Map<string, Promise<void>>, key: string, task: () => Promise<T>): Promise<T> {
+  const previous = chains.get(key) ?? Promise.resolve();
+  const run = previous.then(task, task);
+  const settled = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  chains.set(key, settled);
+  void settled.finally(() => {
+    if (chains.get(key) === settled) chains.delete(key);
+  });
+  return run;
+}
+
+/** Worker is down or rejected the token — stop sending it new launches. */
+function isWorkerTransportFailure(error: unknown): boolean {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  if (message === "unauthorized" || message === "worker_auth_failed") return true;
+  return (
+    message.includes("econnrefused") ||
+    message.includes("econnreset") ||
+    message.includes("etimedout") ||
+    message.includes("enotfound") ||
+    message.includes("fetch failed") ||
+    /^worker_http_(401|502|503|504)$/.test(message)
+  );
+}
+
 type CachedProxyTarget = {
   proxy: ProxyTarget;
   expiresAt: number;
@@ -82,6 +114,7 @@ export function createBrowserSessionService(deps: {
   const { config, store, placement, preferences } = deps;
   const neko = deps.neko ?? createNekoClient();
   const proxyTargetCache = new Map<string, CachedProxyTarget>();
+  const launchChains = new Map<string, Promise<void>>();
 
   function syncLocalActiveCounts(): void {
     for (const worker of placement.store.list()) {
@@ -134,11 +167,167 @@ export function createBrowserSessionService(deps: {
     user: Pick<AuthenticatedUser, "username" | "subjectId">,
   ): BrowserSessionRecord | null {
     // Prefer subjectId so LDAP users reconnect even when display username varies
-    // (sAMAccountName vs UPN). Fall back to username for legacy rows.
-    return (
-      store.getBySubjectId(user.subjectId) ??
-      store.getByOwner(user.username)
-    );
+    // (sAMAccountName vs UPN). Only fall back to username for a legacy row that
+    // has no subject, or the same subject. A shared display name must not hand
+    // one LDAP user another person's browser.
+    const bySubject = store.getBySubjectId(user.subjectId);
+    if (bySubject) return bySubject;
+    const byName = store.getByOwner(user.username);
+    if (!byName) return null;
+    if (byName.ownerSubjectId && user.subjectId && byName.ownerSubjectId !== user.subjectId) {
+      return null;
+    }
+    return byName;
+  }
+
+  async function launchOne(
+    user: AuthenticatedUser,
+    browser: BrowserType,
+  ): Promise<LaunchResult> {
+    const normalized = normalizeBrowserId(browser);
+    if (!normalized) {
+      throw Object.assign(new Error("invalid_browser"), { statusCode: 400 });
+    }
+    assertBrowserEnabled(config.enabledBrowsers, normalized);
+
+    const existing = findOwnedSession(user);
+    if (existing) {
+      try {
+        await ensureRunning(existing);
+        store.touch(existing.id);
+        return { session: existing, reconnect: true };
+      } catch {
+        await destroyRecord(existing);
+      }
+    }
+
+    const persistProfile =
+      config.persistProfilesEnabled && preferences.get(user.subjectId).persistProfile;
+    const excluded = new Set<string>();
+    let lastError: unknown;
+
+    for (;;) {
+      syncLocalActiveCounts();
+      let worker;
+      try {
+        worker = placement.pickForLaunch({
+          persistProfile,
+          subjectId: user.subjectId,
+          browser: normalized,
+          excludeWorkerIds: excluded,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // One live probe before giving up — covers "just authorized" and brief blips.
+        if (message === "no_workers_available" && excluded.size === 0) {
+          const online = await placement.refreshOnlineWorkers();
+          if (online > 0) {
+            try {
+              worker = placement.pickForLaunch({
+                persistProfile,
+                subjectId: user.subjectId,
+                browser: normalized,
+                excludeWorkerIds: excluded,
+              });
+            } catch (retryError) {
+              if (lastError !== undefined) throw lastError;
+              throw retryError;
+            }
+          } else {
+            if (lastError !== undefined) throw lastError;
+            throw error;
+          }
+        } else {
+          if (lastError !== undefined) throw lastError;
+          throw error;
+        }
+      }
+
+      const sessionId = randomToken();
+      const nekoAdminPassword = randomToken();
+      const nekoUserPassword = randomToken();
+      const now = Date.now();
+
+      let createdContainerId: string | null = null;
+      // Local ports are reserved at allocate() and must stay reserved until the
+      // session row exists. Releasing earlier lets a concurrent launch reuse it.
+      let heldLocalPort: number | null = null;
+      try {
+        const created = await placement.createBrowser(worker, {
+          sessionId,
+          owner: user.username,
+          subjectId: user.subjectId,
+          browser: normalized,
+          nekoAdminPassword,
+          nekoUserPassword,
+          persistProfile,
+        });
+        createdContainerId = created.containerId;
+        if (worker.kind === "local") heldLocalPort = created.webrtcPort;
+
+        // Local containers are reached over the Docker network; wait for readiness here.
+        // Remote workers already wait inside the agent before returning.
+        if (worker.kind === "local") {
+          const readyUrl =
+            created.proxyOrigin ||
+            (created.ipAddress ? `http://${created.ipAddress}:8080` : null);
+          if (!readyUrl) throw new Error("container_missing_host");
+          try {
+            await neko.waitUntilReady(readyUrl);
+          } catch (readyError) {
+            const logs = await placement.logs(worker.id, created.containerId).catch(() => "");
+            const detail = readyError instanceof Error ? readyError.message : String(readyError);
+            await placement.remove(worker.id, created.containerId).catch(() => undefined);
+            createdContainerId = null;
+            throw new Error(logs ? `${detail} | logs: ${logs}` : detail);
+          }
+        }
+
+        const record: BrowserSessionRecord = {
+          id: sessionId,
+          ownerUsername: user.username,
+          ownerSubjectId: user.subjectId,
+          browser: normalized,
+          containerId: created.containerId,
+          containerName: created.containerName,
+          nekoAdminPassword,
+          nekoUserPassword,
+          webrtcPort: created.webrtcPort,
+          workerId: created.workerId,
+          createdAt: now,
+          lastActivityAt: now,
+        };
+        store.insert(record);
+        if (heldLocalPort !== null) {
+          placement.releaseLocalPort(heldLocalPort);
+          heldLocalPort = null;
+        }
+        syncLocalActiveCounts();
+        return { session: record, reconnect: false };
+      } catch (error) {
+        if (heldLocalPort !== null) {
+          placement.releaseLocalPort(heldLocalPort);
+          heldLocalPort = null;
+        }
+        if (createdContainerId) {
+          await placement.remove(worker.id, createdContainerId).catch(() => undefined);
+        }
+        syncLocalActiveCounts();
+        excluded.add(worker.id);
+        const message = error instanceof Error ? error.message : String(error);
+        lastError =
+          message === "unauthorized"
+            ? Object.assign(new Error("worker_auth_failed"), { statusCode: 502 })
+            : error;
+        // A container error on one user must not take the host offline for everyone else.
+        if (worker.kind === "remote" && isWorkerTransportFailure(error)) {
+          placement.store.markUnseen(worker.id);
+        }
+        if (persistProfile) {
+          placement.store.clearProfilePlacement(user.subjectId, normalized);
+        }
+      }
+    }
   }
 
   return {
@@ -189,138 +378,10 @@ export function createBrowserSessionService(deps: {
       return { session, proxy };
     },
 
-    async launch(user, browser) {
-      const normalized = normalizeBrowserId(browser);
-      if (!normalized) {
-        throw Object.assign(new Error("invalid_browser"), { statusCode: 400 });
-      }
-      assertBrowserEnabled(config.enabledBrowsers, normalized);
-
-      const existing = findOwnedSession(user);
-      if (existing) {
-        try {
-          await ensureRunning(existing);
-          store.touch(existing.id);
-          return { session: existing, reconnect: true };
-        } catch {
-          await destroyRecord(existing);
-        }
-      }
-
-      const persistProfile =
-        config.persistProfilesEnabled && preferences.get(user.subjectId).persistProfile;
-      const excluded = new Set<string>();
-      let lastError: unknown;
-
-      for (;;) {
-        syncLocalActiveCounts();
-        let worker;
-        try {
-          worker = placement.pickForLaunch({
-            persistProfile,
-            subjectId: user.subjectId,
-            browser: normalized,
-            excludeWorkerIds: excluded,
-          });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          // One live probe before giving up — covers "just authorized" and brief blips.
-          if (message === "no_workers_available" && excluded.size === 0) {
-            const online = await placement.refreshOnlineWorkers();
-            if (online > 0) {
-              try {
-                worker = placement.pickForLaunch({
-                  persistProfile,
-                  subjectId: user.subjectId,
-                  browser: normalized,
-                  excludeWorkerIds: excluded,
-                });
-              } catch (retryError) {
-                if (lastError !== undefined) throw lastError;
-                throw retryError;
-              }
-            } else {
-              if (lastError !== undefined) throw lastError;
-              throw error;
-            }
-          } else {
-            if (lastError !== undefined) throw lastError;
-            throw error;
-          }
-        }
-
-        const sessionId = randomToken();
-        const nekoAdminPassword = randomToken();
-        const nekoUserPassword = randomToken();
-        const now = Date.now();
-
-        let createdContainerId: string | null = null;
-        try {
-          const created = await placement.createBrowser(worker, {
-            sessionId,
-            owner: user.username,
-            subjectId: user.subjectId,
-            browser: normalized,
-            nekoAdminPassword,
-            nekoUserPassword,
-            persistProfile,
-          });
-          createdContainerId = created.containerId;
-
-          // Local containers are reached over the Docker network; wait for readiness here.
-          // Remote workers already wait inside the agent before returning.
-          if (worker.kind === "local") {
-            const readyUrl =
-              created.proxyOrigin ||
-              (created.ipAddress ? `http://${created.ipAddress}:8080` : null);
-            if (!readyUrl) throw new Error("container_missing_host");
-            try {
-              await neko.waitUntilReady(readyUrl);
-            } catch (readyError) {
-              const logs = await placement.logs(worker.id, created.containerId).catch(() => "");
-              const detail = readyError instanceof Error ? readyError.message : String(readyError);
-              await placement.remove(worker.id, created.containerId).catch(() => undefined);
-              createdContainerId = null;
-              throw new Error(logs ? `${detail} | logs: ${logs}` : detail);
-            }
-          }
-
-          const record: BrowserSessionRecord = {
-            id: sessionId,
-            ownerUsername: user.username,
-            ownerSubjectId: user.subjectId,
-            browser: normalized,
-            containerId: created.containerId,
-            containerName: created.containerName,
-            nekoAdminPassword,
-            nekoUserPassword,
-            webrtcPort: created.webrtcPort,
-            workerId: created.workerId,
-            createdAt: now,
-            lastActivityAt: now,
-          };
-          store.insert(record);
-          syncLocalActiveCounts();
-          return { session: record, reconnect: false };
-        } catch (error) {
-          if (createdContainerId) {
-            await placement.remove(worker.id, createdContainerId).catch(() => undefined);
-          }
-          syncLocalActiveCounts();
-          excluded.add(worker.id);
-          const message = error instanceof Error ? error.message : String(error);
-          lastError =
-            message === "unauthorized"
-              ? Object.assign(new Error("worker_auth_failed"), { statusCode: 502 })
-              : error;
-          if (worker.kind === "remote") {
-            placement.store.markUnseen(worker.id);
-          }
-          if (persistProfile) {
-            placement.store.clearProfilePlacement(user.subjectId, normalized);
-          }
-        }
-      }
+    launch(user, browser) {
+      // Queue per subject so one person cannot start two containers, while
+      // other LDAP users still launch at the same time.
+      return enqueueLaunch(launchChains, user.subjectId, () => launchOne(user, browser));
     },
 
     async destroyForUser(user) {
