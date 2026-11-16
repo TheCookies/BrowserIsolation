@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -434,6 +435,73 @@ test("concurrent LDAP users each get a browser and a distinct WebRTC port", asyn
   const third = await service.launch(cara, "firefox");
   assert.equal(third.reconnect, false);
   assert.equal(store.list().length, 1);
+
+  db.close();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("two LDAP accounts with the same display name each get a session", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rbi-ldap-same-name-"));
+  const legacy = new Database(path.join(dir, "rbi.sqlite"));
+  legacy.exec(`
+    CREATE TABLE browser_sessions (
+      id TEXT PRIMARY KEY,
+      owner_username TEXT NOT NULL UNIQUE,
+      owner_subject_id TEXT NOT NULL UNIQUE,
+      browser TEXT NOT NULL,
+      container_id TEXT NOT NULL UNIQUE,
+      container_name TEXT NOT NULL UNIQUE,
+      neko_admin_password TEXT NOT NULL,
+      neko_user_password TEXT NOT NULL,
+      webrtc_port INTEGER NOT NULL,
+      worker_id TEXT NOT NULL DEFAULT 'local',
+      created_at INTEGER NOT NULL,
+      last_activity_at INTEGER NOT NULL
+    );
+  `);
+  legacy.close();
+
+  const config = testConfig(dir);
+  const db = openDatabase(config.databasePath);
+  const preferences = createUserPreferencesStore(db);
+  const store = createBrowserSessionStore(db);
+  const containers = new Map<string, BrowserContainerInfo>();
+  const runtime = makeRuntime(containers);
+  let creates = 0;
+  const originalCreate = runtime.createBrowserContainer.bind(runtime);
+  runtime.createBrowserContainer = async (input) => {
+    creates += 1;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    return originalCreate(input);
+  };
+  const { placement } = testPlacement(db, config, runtime);
+  const service = createBrowserSessionService({ config, store, placement, neko, preferences });
+  const alice = {
+    username: "jsmith",
+    role: "user" as const,
+    subjectId: "ldap:guid-alice|cn=alice,dc=example,dc=com",
+  };
+  const bob = {
+    username: "jsmith",
+    role: "user" as const,
+    subjectId: "ldap:guid-bob|cn=bob,dc=example,dc=com",
+  };
+
+  const [first, second] = await Promise.all([
+    service.launch(alice, "firefox"),
+    service.launch(bob, "firefox"),
+  ]);
+
+  assert.equal(first.reconnect, false);
+  assert.equal(second.reconnect, false);
+  assert.notEqual(first.session.id, second.session.id);
+  assert.notEqual(first.session.webrtcPort, second.session.webrtcPort);
+  assert.equal(first.session.ownerUsername, "jsmith");
+  assert.equal(second.session.ownerUsername, "jsmith");
+  assert.equal(store.list().length, 2);
+  assert.equal(creates, 2);
+  assert.equal(service.getMine(alice)?.id, first.session.id);
+  assert.equal(service.getMine(bob)?.id, second.session.id);
 
   db.close();
   rmSync(dir, { recursive: true, force: true });

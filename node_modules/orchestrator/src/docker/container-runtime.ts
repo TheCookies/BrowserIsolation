@@ -251,14 +251,42 @@ function runtimeView(config: Config, settings?: BrowserLaunchSettings): RuntimeV
 }
 
 /**
- * Build Neko capture env so the remote X11 pointer is never in the video stream.
+ * Pulse sink the remote browser plays into, and the monitor Neko records.
+ * default.pa names that sink `audio_output`. A second null sink (`audio_input`)
+ * is also loaded, so the browser must be told which one is the speaker.
+ */
+export const NEKO_AUDIO_SINK = "audio_output";
+export const NEKO_AUDIO_MONITOR = "audio_output.monitor";
+
+export function buildNekoAudioCaptureEnv(): string[] {
+  // Same pipeline Neko builds for opus. Pin it so capture stays on the monitor
+  // the browser is actually using. `{device}` is replaced with the monitor name.
+  const pipeline =
+    "pulsesrc device={device} " +
+    "! audio/x-raw,channels=2 " +
+    "! audioconvert " +
+    "! queue max-size-buffers=5 leaky=downstream " +
+    "! opusenc inband-fec=true bitrate=128000 " +
+    "! appsink name=appsink";
+
+  return [
+    "PULSE_SERVER=unix:/tmp/pulseaudio.socket",
+    `PULSE_SINK=${NEKO_AUDIO_SINK}`,
+    `NEKO_CAPTURE_AUDIO_DEVICE=${NEKO_AUDIO_MONITOR}`,
+    "NEKO_CAPTURE_AUDIO_CODEC=opus",
+    `NEKO_CAPTURE_AUDIO_PIPELINE=${pipeline}`,
+  ];
+}
+
+/**
+ * Build Neko capture env so the remote X11 pointer is not burned into the video.
  *
- * Our portal viewer uses the legacy Neko WS API + the local OS cursor. Neko 3.1.x
- * with NEKO_LEGACY=true auto-creates a "legacy" pipeline that forces
- * show-pointer=true (so the old UI has a cursor). That produces a second, lagged
- * cursor on top of the local one. Avoid the singular NEKO_CAPTURE_VIDEO_PIPELINE
- * shorthand (that path rewrites show-pointer to true for legacy) and instead
- * publish both `main` and `legacy` pipelines with show-pointer=false hardcoded.
+ * The portal draws that pointer from the cursor-image frames on the data channel,
+ * hotspot and all. Capturing it as well paints a second, delayed cursor that does
+ * not sit on the one the user is aiming with. Neko 3.1+ with NEKO_LEGACY=true
+ * rewrites the singular NEKO_CAPTURE_VIDEO_PIPELINE shorthand so the legacy
+ * pipeline forces show-pointer=true. Publish both `main` and `legacy` with
+ * show-pointer=false instead.
  */
 export function buildNekoCapturePipelineEnv(
   config: Pick<Config, "captureVideoCodec">,
@@ -341,7 +369,7 @@ function nekoEnv(
     `NEKO_WEBRTC_ICESERVERS_FRONTEND=${view.iceServersFrontend}`,
     `NEKO_WEBRTC_ICESERVERS_BACKEND=${view.iceServersBackend}`,
     `NEKO_DESKTOP_SCREEN=${view.desktopScreen}`,
-    "NEKO_CAPTURE_AUDIO_CODEC=opus",
+    ...buildNekoAudioCaptureEnv(),
     ...capturePipeline(view),
   ];
 }

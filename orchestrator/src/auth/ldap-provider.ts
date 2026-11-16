@@ -8,10 +8,34 @@ export const DEFAULT_LDAP_SEARCH_FILTER =
 export const DEFAULT_LDAP_USERNAME_ATTR = "sAMAccountName";
 export const DEFAULT_LDAP_GROUPS_ATTR = "memberOf";
 
+export type LdapAttributeValue =
+  | Buffer
+  | Buffer[]
+  | Uint8Array
+  | string
+  | string[]
+  | number[];
+
 export type LdapUserEntry = {
   dn: string;
-  attributes: Record<string, Buffer | Buffer[] | string | string[]>;
+  attributes: Record<string, LdapAttributeValue>;
 };
+
+/** Attributes that identify one directory account. objectGUID/objectSid are binary. */
+const LDAP_IDENTITY_ATTRIBUTES = [
+  "objectGUID",
+  "objectSid",
+  "entryUUID",
+  "nsUniqueId",
+  "distinguishedName",
+] as const;
+
+const LDAP_BINARY_ATTRIBUTES = [
+  "objectGUID",
+  "objectSid",
+  "objectGUID;binary",
+  "objectSid;binary",
+];
 
 /** Injectable directory operations for unit tests. */
 export type LdapDirectory = {
@@ -84,16 +108,57 @@ export function mapLdapRole(groups: string[], adminGroupSpec: string): Role {
   return "user";
 }
 
-function asStringList(value: Buffer | Buffer[] | string | string[] | undefined): string[] {
+function asStringList(value: LdapAttributeValue | undefined): string[] {
   if (value === undefined) return [];
+  if (Buffer.isBuffer(value)) return [value.toString("utf8")];
+  if (value instanceof Uint8Array) return [Buffer.from(value).toString("utf8")];
   if (Array.isArray(value)) {
-    return value.flatMap((item) => asStringList(item));
-  }
-  if (Buffer.isBuffer(value)) {
-    return [value.toString("utf8")];
+    return value.flatMap((item) => {
+      if (typeof item === "string") return asStringList(item);
+      if (Buffer.isBuffer(item)) return asStringList(item);
+      return [];
+    });
   }
   const text = String(value).trim();
   return text ? [text] : [];
+}
+
+/**
+ * Copy binary directory values out of ldapts' socket buffer before unbind.
+ * objectGUID/objectSid are views into that buffer; a later read can overwrite
+ * them, which made every AD account look like the same user.
+ */
+export function snapshotLdapEntry(entry: LdapUserEntry): LdapUserEntry {
+  const attributes: LdapUserEntry["attributes"] = {};
+  for (const [key, value] of Object.entries(entry.attributes)) {
+    const cloned = cloneLdapAttribute(value);
+    if (cloned !== undefined) attributes[key] = cloned;
+  }
+  return { dn: String(entry.dn ?? ""), attributes };
+}
+
+function cloneLdapAttribute(value: unknown): LdapAttributeValue | undefined {
+  if (Buffer.isBuffer(value)) return Buffer.from(value);
+  if (value instanceof Uint8Array) return Buffer.from(value);
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return undefined;
+  if (
+    value.length > 0 &&
+    value.every((item) => typeof item === "number" && Number.isInteger(item) && item >= 0 && item <= 255)
+  ) {
+    return Buffer.from(value);
+  }
+  const buffers: Buffer[] = [];
+  const strings: string[] = [];
+  for (const item of value) {
+    if (Buffer.isBuffer(item) || item instanceof Uint8Array) buffers.push(Buffer.from(item));
+    else if (typeof item === "string") strings.push(item);
+  }
+  if (buffers.length > 0 && strings.length === 0) {
+    return buffers.length === 1 ? buffers[0]! : buffers;
+  }
+  if (strings.length > 0) return strings.length === 1 ? strings[0]! : strings;
+  return undefined;
 }
 
 /** Format AD objectGUID (16-byte little-endian) as a dashed GUID string. */
@@ -137,53 +202,121 @@ export function resolveLdapGroups(entry: LdapUserEntry, groupsAttr: string): str
   return asStringList(entry.attributes[key]);
 }
 
-function asObjectGuidBuffer(
-  value: Buffer | Buffer[] | string | string[] | Uint8Array | undefined,
-): Buffer | null {
-  const raw = Array.isArray(value) ? value[0] : value;
-  if (!raw) return null;
-  if (Buffer.isBuffer(raw) && raw.length === 16) return raw;
-  if (raw instanceof Uint8Array && raw.length === 16) return Buffer.from(raw);
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    // ldapts sometimes yields a binary string of length 16.
-    if (trimmed.length === 16) {
-      const buf = Buffer.from(trimmed, "binary");
-      if (buf.length === 16) return buf;
-    }
-    // Already-formatted GUID from some directories.
-    if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(trimmed)) {
-      return null; // handled as string id below
-    }
-    try {
-      const b64 = Buffer.from(trimmed, "base64");
-      if (b64.length === 16) return b64;
-    } catch {
-      /* ignore */
-    }
+const NIL_GUID = "00000000-0000-0000-0000-000000000000";
+const DASHED_GUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+function attributeByName(entry: LdapUserEntry, baseName: string): LdapAttributeValue | undefined {
+  const want = baseName.toLowerCase();
+  const key = Object.keys(entry.attributes).find((name) => {
+    const lower = name.toLowerCase();
+    return lower === want || lower.startsWith(`${want};`);
+  });
+  return key ? entry.attributes[key] : undefined;
+}
+
+/** ldapts fills requested-but-missing attributes with []. A byte list is one value. */
+function firstAttributeValue(value: LdapAttributeValue | undefined): unknown {
+  if (!Array.isArray(value)) return value;
+  if (value.length === 0) return undefined;
+  if (value.every((item) => typeof item === "number")) return value;
+  return value[0];
+}
+
+function guidFromBytes(raw: Buffer): string | null {
+  if (raw.length !== 16) return null;
+  const copy = Buffer.from(raw);
+  if (copy.every((byte) => byte === copy[0])) return null;
+  const formatted = formatObjectGuid(copy);
+  return formatted === NIL_GUID ? null : formatted;
+}
+
+function readObjectGuid(entry: LdapUserEntry): string | null {
+  const raw = firstAttributeValue(attributeByName(entry, "objectGUID"));
+  if (Buffer.isBuffer(raw) || raw instanceof Uint8Array) return guidFromBytes(Buffer.from(raw));
+  if (
+    Array.isArray(raw) &&
+    raw.length === 16 &&
+    raw.every((item) => typeof item === "number" && Number.isInteger(item) && item >= 0 && item <= 255)
+  ) {
+    return guidFromBytes(Buffer.from(raw));
+  }
+  if (typeof raw !== "string" || !raw) return null;
+  // Binary strings are not trimmed: a GUID byte can be whitespace.
+  if (raw.length === 16) {
+    const fromBinary = guidFromBytes(Buffer.from(raw, "latin1"));
+    if (fromBinary) return fromBinary;
+  }
+  const trimmed = raw.trim().replace(/^\{([0-9a-fA-F-]{36})\}$/, "$1");
+  if (DASHED_GUID.test(trimmed)) {
+    const formatted = trimmed.toLowerCase();
+    return formatted === NIL_GUID ? null : formatted;
+  }
+  if (/^[0-9a-fA-F]{32}$/.test(trimmed)) return guidFromBytes(Buffer.from(trimmed, "hex"));
+  if (/^[A-Za-z0-9+/]{22}={0,2}$/.test(trimmed)) {
+    const decoded = Buffer.from(trimmed, "base64");
+    if (decoded.length === 16) return guidFromBytes(decoded);
   }
   return null;
 }
 
-export function resolveLdapSubjectId(entry: LdapUserEntry): string {
-  const guidKey = Object.keys(entry.attributes).find(
-    (name) => name.toLowerCase() === "objectguid",
-  );
-  if (guidKey) {
-    const raw = entry.attributes[guidKey];
-    const buf = asObjectGuidBuffer(raw as Buffer | Buffer[] | string | string[] | undefined);
-    if (buf) {
-      return ldapSubjectId(formatObjectGuid(buf));
-    }
-    const single = Array.isArray(raw) ? raw[0] : raw;
-    if (typeof single === "string" && single.trim()) {
-      const trimmed = single.trim();
-      if (/^[0-9a-fA-F-]{36}$/.test(trimmed)) {
-        return ldapSubjectId(trimmed.toLowerCase());
-      }
-    }
+/** Active Directory objectSid → `S-1-5-21-…`. */
+export function formatObjectSid(raw: Buffer): string | null {
+  if (raw.length < 8) return null;
+  const revision = raw[0] ?? 0;
+  const count = raw[1] ?? 0;
+  if (count > 15 || raw.length < 8 + count * 4) return null;
+  let authority = 0n;
+  for (let i = 2; i < 8; i += 1) {
+    authority = (authority << 8n) + BigInt(raw[i] ?? 0);
   }
-  return ldapSubjectId(entry.dn);
+  const parts = [`S-${revision}-${authority.toString()}`];
+  for (let i = 0; i < count; i += 1) {
+    parts.push(String(raw.readUInt32LE(8 + i * 4)));
+  }
+  return parts.join("-");
+}
+
+function readObjectSid(entry: LdapUserEntry): string | null {
+  const raw = firstAttributeValue(attributeByName(entry, "objectSid"));
+  if (Buffer.isBuffer(raw) || raw instanceof Uint8Array) return formatObjectSid(Buffer.from(raw));
+  if (typeof raw === "string" && /^S-\d+(-\d+)+$/i.test(raw.trim())) return raw.trim();
+  return null;
+}
+
+function readDirectoryUuid(entry: LdapUserEntry): string | null {
+  for (const name of ["entryUUID", "nsUniqueId"]) {
+    const text = asStringList(attributeByName(entry, name))[0]?.trim() ?? "";
+    if (text && text.toLowerCase() !== NIL_GUID) return text;
+  }
+  return null;
+}
+
+function directoryDn(entry: LdapUserEntry): string {
+  const fromAttribute = asStringList(attributeByName(entry, "distinguishedName"))[0]?.trim() ?? "";
+  if (fromAttribute.includes("=")) return fromAttribute;
+  const direct = entry.dn?.trim() ?? "";
+  return direct.includes("=") ? direct : "";
+}
+
+function normalizeDn(dn: string): string {
+  return dn.trim().toLowerCase();
+}
+
+/**
+ * One directory account → one subject. objectGUID/objectSid/entryUUID are tried
+ * first, and the account DN is always included so two people cannot collapse
+ * onto one id when a binary value is missing or was decoded the same way.
+ * Display username is intentionally not part of this id.
+ */
+export function resolveLdapSubjectId(entry: LdapUserEntry): string {
+  const dn = directoryDn(entry);
+  const sid = readObjectSid(entry);
+  const uuid = readDirectoryUuid(entry);
+  const token = readObjectGuid(entry) ?? (sid ? `sid:${sid}` : null) ?? (uuid ? `uuid:${uuid}` : null);
+  if (token && dn) return ldapSubjectId(`${token}|${normalizeDn(dn)}`);
+  if (token) return ldapSubjectId(token);
+  if (dn) return ldapSubjectId(dn);
+  throw new Error("LDAP entry has no objectGUID, objectSid, entryUUID, or DN.");
 }
 
 export function entryToUser(
@@ -191,12 +324,13 @@ export function entryToUser(
   loginUsername: string,
   config: Pick<Config, "ldapUsernameAttr" | "ldapGroupsAttr" | "ldapAdminGroup">,
 ): AuthenticatedUser {
-  const username = resolveLdapDisplayUsername(entry, config.ldapUsernameAttr, loginUsername);
-  const groups = resolveLdapGroups(entry, config.ldapGroupsAttr);
+  const safe = snapshotLdapEntry(entry);
+  const username = resolveLdapDisplayUsername(safe, config.ldapUsernameAttr, loginUsername);
+  const groups = resolveLdapGroups(safe, config.ldapGroupsAttr);
   return {
     username,
     role: mapLdapRole(groups, config.ldapAdminGroup),
-    subjectId: resolveLdapSubjectId(entry),
+    subjectId: resolveLdapSubjectId(safe),
   };
 }
 
@@ -395,7 +529,8 @@ export async function testLdapConnection(
           scope: "sub",
           filter,
           sizeLimit: 2,
-          attributes: [usernameAttr, groupsAttr, "dn", "distinguishedName"],
+          attributes: [usernameAttr, groupsAttr, ...LDAP_IDENTITY_ATTRIBUTES],
+          explicitBufferAttributes: LDAP_BINARY_ATTRIBUTES,
         });
         const count = result.searchEntries.length;
         if (count === 0) {
@@ -479,13 +614,14 @@ export function createLdaptsDirectory(): LdapDirectory {
           scope: "sub",
           filter,
           sizeLimit: 2,
-          attributes: [usernameAttr, groupsAttr, "objectGUID", "dn", "distinguishedName"],
-          explicitBufferAttributes: ["objectGUID"],
+          attributes: [usernameAttr, groupsAttr, ...LDAP_IDENTITY_ATTRIBUTES],
+          explicitBufferAttributes: LDAP_BINARY_ATTRIBUTES,
         });
         const entry = result.searchEntries[0];
         if (!entry?.dn || result.searchEntries.length !== 1) return null;
+        // Copy GUID/SID bytes before unbind reuses the LDAP socket buffer.
         const { dn, ...attributes } = entry;
-        return { dn: String(dn), attributes };
+        return snapshotLdapEntry({ dn: String(dn), attributes });
       } finally {
         try {
           await client.unbind();

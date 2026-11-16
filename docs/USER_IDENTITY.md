@@ -9,7 +9,7 @@ same storage model. For the full doc set, see [README.md](README.md).
 | Field | Purpose | Example (local) | Example (SAML) | Example (LDAP) |
 | --- | --- | --- | --- | --- |
 | `username` | Display / login label shown in the UI | `alice` | `alice@example.com` | `alice` |
-| `subjectId` | Stable ownership key for prefs + volumes | `local:alice` | `saml:urn:oasis:…:alice@example.com` | `ldap:<objectGUID>` |
+| `subjectId` | Stable ownership key for prefs + volumes | `local:alice` | `saml:urn:oasis:…:alice@example.com` | `ldap:<objectGUID>\|<dn>` |
 | `profileStorageKey` | Path-safe hash of `subjectId` | `a1b2…` (32 hex chars) | same derivation | same derivation |
 
 **Rule:** preferences and Docker volumes are keyed by `subjectId` (via
@@ -148,9 +148,14 @@ plus a local-first composite in `composite-provider.ts`.
 `local:` / `ldap:` identities for the same name.
 
 LDAP users are **not** inserted into `local_users`. `subjectId` is
-`ldap:<objectGUID>` when available, otherwise `ldap:<DN>`. `canChangePassword`
-is false for LDAP subjects. The orchestrator host must reach the domain
-controller; no public IdP callback / VIP is required for LDAP bind.
+`ldap:<objectGUID>|<dn>` when Active Directory returns a real objectGUID,
+otherwise `ldap:sid:<objectSid>|<dn>`, `ldap:uuid:<entryUUID>|<dn>`, or
+`ldap:<DN>`. The directory DN is part of the id so two accounts never share a
+browser when a binary attribute is missing or identical. Display names are not
+unique (two people can both show as the same short name) and are not the
+session key. `canChangePassword` is false for LDAP subjects. The orchestrator
+host must reach the domain controller; no public IdP callback / VIP is required
+for LDAP bind.
 
 ## API surface
 

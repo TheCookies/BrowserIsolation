@@ -6,7 +6,8 @@ import { createHash } from "node:crypto";
  * Formats:
  * - Local: `local:<username>`
  * - SAML:  `saml:<NameID>` (or `saml:<NameIDFormat>:<NameID>`)
- * - LDAP:  `ldap:<objectGUID>` (or `ldap:<DN>` when GUID is unavailable)
+ * - LDAP:  `ldap:<objectGUID>|<dn>` (or `ldap:sid:…|<dn>`, `ldap:uuid:…|<dn>`,
+ *   or `ldap:<DN>` when no stable directory id is available)
  *
  * Never use display usernames alone as storage keys — SAML NameIDs, LDAP DNs,
  * and local usernames can collide or contain path-unsafe characters. Always

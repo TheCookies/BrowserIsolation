@@ -214,6 +214,7 @@ export function openDatabase(filePath: string): Database.Database {
   migratePortalSessionsSubjectId(db);
   migrateBrowserSessionWorkers(db);
   migrateBrowserSessionSubjectId(db);
+  migrateBrowserSessionUsernameNotUnique(db);
   migrateAuditEventsWidenActions(db);
   migrateAuditEventsFilterIndexes(db);
   migrateUserPreferencesDarkMode(db);
@@ -235,6 +236,9 @@ function migrateBrowserSessionSubjectId(db: Database.Database): void {
       CREATE INDEX IF NOT EXISTS idx_browser_sessions_subject
         ON browser_sessions(owner_subject_id);
     `);
+    // Username uniqueness is removed in migrateBrowserSessionUsernameNotUnique.
+    // Returning here used to leave UNIQUE(owner_username) in place, so a second
+    // AD account with the same display name could not insert a session.
     return;
   }
 
@@ -351,11 +355,55 @@ function migrateBrowserSessionWorkers(db: Database.Database): void {
     .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'browser_sessions'`)
     .get() as { sql?: string } | undefined;
   if (sqlRow?.sql?.includes("webrtc_port INTEGER NOT NULL UNIQUE")) {
+    const hasSubject = cols.some((col) => col.name === "owner_subject_id");
+    if (hasSubject) {
+      db.exec(`
+        BEGIN;
+        CREATE TABLE browser_sessions_ports (
+          id TEXT PRIMARY KEY,
+          owner_username TEXT NOT NULL,
+          owner_subject_id TEXT NOT NULL UNIQUE,
+          browser TEXT NOT NULL,
+          container_id TEXT NOT NULL UNIQUE,
+          container_name TEXT NOT NULL UNIQUE,
+          neko_admin_password TEXT NOT NULL,
+          neko_user_password TEXT NOT NULL,
+          webrtc_port INTEGER NOT NULL,
+          worker_id TEXT NOT NULL DEFAULT 'local',
+          created_at INTEGER NOT NULL,
+          last_activity_at INTEGER NOT NULL
+        );
+        INSERT INTO browser_sessions_ports (
+          id, owner_username, owner_subject_id, browser, container_id, container_name,
+          neko_admin_password, neko_user_password, webrtc_port, worker_id,
+          created_at, last_activity_at
+        )
+        SELECT
+          id, owner_username,
+          CASE
+            WHEN TRIM(owner_subject_id) = '' THEN 'local:' || owner_username
+            ELSE owner_subject_id
+          END,
+          browser, container_id, container_name,
+          neko_admin_password, neko_user_password, webrtc_port,
+          COALESCE(worker_id, 'local'), created_at, last_activity_at
+        FROM browser_sessions;
+        DROP TABLE browser_sessions;
+        ALTER TABLE browser_sessions_ports RENAME TO browser_sessions;
+        CREATE INDEX IF NOT EXISTS idx_browser_sessions_owner
+          ON browser_sessions(owner_username);
+        CREATE INDEX IF NOT EXISTS idx_browser_sessions_subject
+          ON browser_sessions(owner_subject_id);
+        COMMIT;
+      `);
+      return;
+    }
+
     db.exec(`
       BEGIN;
       CREATE TABLE browser_sessions_ports (
         id TEXT PRIMARY KEY,
-        owner_username TEXT NOT NULL UNIQUE,
+        owner_username TEXT NOT NULL,
         browser TEXT NOT NULL,
         container_id TEXT NOT NULL UNIQUE,
         container_name TEXT NOT NULL UNIQUE,
@@ -383,6 +431,73 @@ function migrateBrowserSessionWorkers(db: Database.Database): void {
       COMMIT;
     `);
   }
+}
+
+/**
+ * Drop leftover UNIQUE(owner_username). Sessions are unique per subject id, so
+ * two LDAP accounts that share a display name can each have a browser.
+ */
+function migrateBrowserSessionUsernameNotUnique(db: Database.Database): void {
+  const cols = db.prepare(`PRAGMA table_info(browser_sessions)`).all() as Array<{ name: string }>;
+  if (!cols.some((col) => col.name === "owner_subject_id")) return;
+  if (!ownerUsernameIsUnique(db)) return;
+
+  db.exec(`
+    BEGIN;
+    CREATE TABLE browser_sessions_users (
+      id TEXT PRIMARY KEY,
+      owner_username TEXT NOT NULL,
+      owner_subject_id TEXT NOT NULL UNIQUE,
+      browser TEXT NOT NULL,
+      container_id TEXT NOT NULL UNIQUE,
+      container_name TEXT NOT NULL UNIQUE,
+      neko_admin_password TEXT NOT NULL,
+      neko_user_password TEXT NOT NULL,
+      webrtc_port INTEGER NOT NULL,
+      worker_id TEXT NOT NULL DEFAULT 'local',
+      created_at INTEGER NOT NULL,
+      last_activity_at INTEGER NOT NULL
+    );
+    INSERT INTO browser_sessions_users (
+      id, owner_username, owner_subject_id, browser, container_id, container_name,
+      neko_admin_password, neko_user_password, webrtc_port, worker_id,
+      created_at, last_activity_at
+    )
+    SELECT
+      id, owner_username,
+      CASE
+        WHEN TRIM(owner_subject_id) = '' THEN 'local:' || owner_username
+        ELSE owner_subject_id
+      END,
+      browser, container_id, container_name,
+      neko_admin_password, neko_user_password, webrtc_port,
+      COALESCE(worker_id, 'local'), created_at, last_activity_at
+    FROM browser_sessions;
+    DROP TABLE browser_sessions;
+    ALTER TABLE browser_sessions_users RENAME TO browser_sessions;
+    CREATE INDEX IF NOT EXISTS idx_browser_sessions_owner
+      ON browser_sessions(owner_username);
+    CREATE INDEX IF NOT EXISTS idx_browser_sessions_subject
+      ON browser_sessions(owner_subject_id);
+    COMMIT;
+  `);
+}
+
+function ownerUsernameIsUnique(db: Database.Database): boolean {
+  const indexes = db.prepare(`PRAGMA index_list(browser_sessions)`).all() as Array<{
+    name: string;
+    unique: number;
+  }>;
+  for (const index of indexes) {
+    if (!index.unique) continue;
+    const quoted = `"${index.name.replaceAll('"', '""')}"`;
+    const cols = db.prepare(`PRAGMA index_info(${quoted})`).all() as Array<{ name: string }>;
+    if (cols.length === 1 && cols[0]?.name === "owner_username") return true;
+  }
+  const sqlRow = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'browser_sessions'`)
+    .get() as { sql?: string } | undefined;
+  return /owner_username\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i.test(sqlRow?.sql ?? "");
 }
 
 function migratePortalSessionsSubjectId(db: Database.Database): void {

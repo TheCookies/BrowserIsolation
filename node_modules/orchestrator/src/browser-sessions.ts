@@ -86,6 +86,16 @@ function enqueueLaunch<T>(chains: Map<string, Promise<void>>, key: string, task:
 }
 
 /** Worker is down or rejected the token — stop sending it new launches. */
+function isSqliteConstraint(error: unknown): boolean {
+  const code =
+    typeof error === "object" && error && "code" in error
+      ? String((error as { code?: unknown }).code ?? "")
+      : "";
+  if (code.startsWith("SQLITE_CONSTRAINT")) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("UNIQUE constraint failed");
+}
+
 function isWorkerTransportFailure(error: unknown): boolean {
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
   if (message === "unauthorized" || message === "worker_auth_failed") return true;
@@ -166,17 +176,17 @@ export function createBrowserSessionService(deps: {
   function findOwnedSession(
     user: Pick<AuthenticatedUser, "username" | "subjectId">,
   ): BrowserSessionRecord | null {
-    // Prefer subjectId so LDAP users reconnect even when display username varies
-    // (sAMAccountName vs UPN). Only fall back to username for a legacy row that
-    // has no subject, or the same subject. A shared display name must not hand
-    // one LDAP user another person's browser.
+    // subjectId is the only ownership key. Display names vary (sAMAccountName vs
+    // UPN) and are not unique across the directory.
     const bySubject = store.getBySubjectId(user.subjectId);
     if (bySubject) return bySubject;
+    // Display names are not unique across AD (two "John Smith" accounts, or the
+    // same short name in different OUs). LDAP and SAML users only match on
+    // subjectId. A local account may still claim a legacy row with no subject.
+    if (!user.subjectId.startsWith("local:")) return null;
     const byName = store.getByOwner(user.username);
     if (!byName) return null;
-    if (byName.ownerSubjectId && user.subjectId && byName.ownerSubjectId !== user.subjectId) {
-      return null;
-    }
+    if (byName.ownerSubjectId && byName.ownerSubjectId !== user.subjectId) return null;
     return byName;
   }
 
@@ -313,6 +323,15 @@ export function createBrowserSessionService(deps: {
           await placement.remove(worker.id, createdContainerId).catch(() => undefined);
         }
         syncLocalActiveCounts();
+        // A unique-key failure is not a bad worker. Retrying it starts another
+        // container and the request never returns.
+        if (isSqliteConstraint(error)) {
+          const owned = findOwnedSession(user);
+          if (owned && owned.ownerSubjectId === user.subjectId) {
+            return { session: owned, reconnect: true };
+          }
+          throw Object.assign(new Error("session_conflict"), { statusCode: 409 });
+        }
         excluded.add(worker.id);
         const message = error instanceof Error ? error.message : String(error);
         lastError =

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompositeAuthProvider } from "../src/auth/composite-provider";
-import { ldapSubjectId } from "../src/auth/identity";
+import { ldapSubjectId, profileStorageKey } from "../src/auth/identity";
 import {
   assertLdapReady,
   buildLdapSearchFilter,
@@ -10,8 +10,10 @@ import {
   entryToUser,
   escapeLdapFilterValue,
   formatObjectGuid,
+  formatObjectSid,
   mapLdapRole,
   resolveLdapDisplayUsername,
+  snapshotLdapEntry,
   testLdapConnection,
   type LdapDirectory,
 } from "../src/auth/ldap-provider";
@@ -134,7 +136,141 @@ test("objectGUID and DN become stable ldap subject ids", () => {
   );
   assert.equal(user.username, "alice");
   assert.equal(user.role, "admin");
-  assert.equal(user.subjectId, "ldap:01020304-0506-0708-090a-0b0c0d0e0f10");
+  assert.equal(
+    user.subjectId,
+    "ldap:01020304-0506-0708-090a-0b0c0d0e0f10|cn=alice,ou=users,dc=example,dc=com",
+  );
+});
+
+const sampleGuid = () =>
+  Buffer.from([
+    0x04, 0x03, 0x02, 0x01, 0x06, 0x05, 0x08, 0x07, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+  ]);
+
+const ldapEntryConfig = {
+  ldapUsernameAttr: "",
+  ldapGroupsAttr: "",
+  ldapAdminGroup: "",
+};
+
+test("each LDAP account gets its own subject even when the display name matches", () => {
+  const guid = sampleGuid();
+  const alice = entryToUser(
+    {
+      dn: "CN=Alice,OU=Users,DC=example,DC=com",
+      attributes: { sAMAccountName: "jsmith", objectGUID: guid },
+    },
+    "jsmith",
+    ldapEntryConfig,
+  );
+  const bob = entryToUser(
+    {
+      dn: "CN=Bob,OU=Users,DC=example,DC=com",
+      attributes: { sAMAccountName: "jsmith", objectGUID: Buffer.from(guid) },
+    },
+    "jsmith",
+    ldapEntryConfig,
+  );
+  assert.equal(alice.username, "jsmith");
+  assert.equal(bob.username, "jsmith");
+  assert.notEqual(alice.subjectId, bob.subjectId);
+  assert.notEqual(profileStorageKey(alice.subjectId), profileStorageKey(bob.subjectId));
+
+  const again = entryToUser(
+    {
+      dn: "CN=Alice,OU=Users,DC=example,DC=com",
+      attributes: { userPrincipalName: "alice@example.com", objectGUID: Buffer.from(guid) },
+    },
+    "alice@example.com",
+    ldapEntryConfig,
+  );
+  assert.equal(again.username, "alice");
+  assert.equal(again.subjectId, alice.subjectId);
+});
+
+test("LDAP subject ids accept GUID encodings and fall back per account", () => {
+  const guid = sampleGuid();
+  const dn = "CN=Alice,OU=Users,DC=example,DC=com";
+  const expected = "ldap:01020304-0506-0708-090a-0b0c0d0e0f10|cn=alice,ou=users,dc=example,dc=com";
+  for (const objectGUID of [
+    guid,
+    Array.from(guid),
+    guid.toString("hex"),
+    guid.toString("base64"),
+    guid.toString("latin1"),
+    `{${formatObjectGuid(guid)}}`,
+  ]) {
+    const user = entryToUser(
+      { dn, attributes: { sAMAccountName: "alice", objectGUID: objectGUID as never } },
+      "alice",
+      ldapEntryConfig,
+    );
+    assert.equal(user.subjectId, expected);
+  }
+
+  const nil = entryToUser(
+    {
+      dn,
+      attributes: { sAMAccountName: "alice", objectGUID: Buffer.alloc(16) },
+    },
+    "alice",
+    ldapEntryConfig,
+  );
+  assert.equal(nil.subjectId, `ldap:${dn}`);
+
+  const missing = entryToUser(
+    { dn, attributes: { sAMAccountName: "alice", objectGUID: [] } },
+    "alice",
+    ldapEntryConfig,
+  );
+  assert.equal(missing.subjectId, `ldap:${dn}`);
+
+  const sid = Buffer.alloc(24);
+  sid[0] = 1;
+  sid[1] = 4;
+  sid[7] = 5;
+  sid.writeUInt32LE(21, 8);
+  sid.writeUInt32LE(1, 12);
+  sid.writeUInt32LE(2, 16);
+  sid.writeUInt32LE(3, 20);
+  assert.equal(formatObjectSid(sid), "S-1-5-21-1-2-3");
+  const bySid = entryToUser(
+    {
+      dn: "CN=Bob,OU=Users,DC=example,DC=com",
+      attributes: { sAMAccountName: "bob", objectSid: sid },
+    },
+    "bob",
+    ldapEntryConfig,
+  );
+  assert.equal(
+    bySid.subjectId,
+    "ldap:sid:S-1-5-21-1-2-3|cn=bob,ou=users,dc=example,dc=com",
+  );
+
+  const byUuid = entryToUser(
+    {
+      dn: "uid=cara,ou=people,dc=example,dc=com",
+      attributes: { uid: "cara", entryUUID: "11111111-2222-3333-4444-555555555555" },
+    },
+    "cara",
+    ldapEntryConfig,
+  );
+  assert.equal(
+    byUuid.subjectId,
+    "ldap:uuid:11111111-2222-3333-4444-555555555555|uid=cara,ou=people,dc=example,dc=com",
+  );
+});
+
+test("LDAP binary attributes are copied before the directory buffer is reused", () => {
+  const guid = sampleGuid();
+  const entry = {
+    dn: "CN=Alice,OU=Users,DC=example,DC=com",
+    attributes: { sAMAccountName: "alice", objectGUID: guid },
+  };
+  const snap = snapshotLdapEntry(entry);
+  guid.fill(0);
+  const user = entryToUser(snap, "alice", ldapEntryConfig);
+  assert.match(user.subjectId, /01020304-0506-0708-090a-0b0c0d0e0f10/);
 });
 
 test("composite auth prefers local users and never falls through to LDAP", async () => {
