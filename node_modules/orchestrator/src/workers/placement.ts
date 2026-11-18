@@ -38,6 +38,11 @@ export type WorkerPlacement = {
     worker: WorkerRecord,
     request: Omit<WorkerCreateBrowserRequest, "settings">,
   ): Promise<PlacementCreateResult>;
+  /**
+   * Drop a local in-flight WebRTC port hold. Call after the session row is
+   * inserted (the row keeps the port) or when a launch is abandoned.
+   */
+  releaseLocalPort(port: number): void;
   remove(workerId: string, containerId: string): Promise<void>;
   inspect(workerId: string, containerId: string): Promise<BrowserContainerInfo | null>;
   stats(workerId: string, containerId: string): Promise<ContainerStats>;
@@ -262,6 +267,10 @@ export function createWorkerPlacement(deps: {
         publicIp: created.publicIp || worker.publicIp,
       });
       return { ...created, workerId: worker.id };
+    },
+
+    releaseLocalPort(port) {
+      localPorts.release(port);
     },
 
     async remove(workerId, containerId) {

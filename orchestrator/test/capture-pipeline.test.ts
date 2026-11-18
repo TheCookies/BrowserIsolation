@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildNekoCapturePipelineEnv } from "../src/docker/container-runtime";
+import {
+  buildNekoAudioCaptureEnv,
+  buildNekoCapturePipelineEnv,
+} from "../src/docker/container-runtime";
 
 function envMap(rows: string[]): Record<string, string> {
   const out: Record<string, string> = {};
@@ -44,4 +47,17 @@ test("h264 capture env hardcodes show-pointer=false for main and legacy", () => 
   assert.ok(pipelines.main?.gst_pipeline.includes("show-pointer=false"));
   assert.ok(pipelines.legacy?.gst_pipeline.includes("show-pointer=false"));
   assert.ok(pipelines.main.gst_pipeline.includes("x264enc"));
+});
+
+test("audio capture records the pulse sink the browser plays into", () => {
+  const env = envMap(buildNekoAudioCaptureEnv());
+  assert.equal(env.PULSE_SERVER, "unix:/tmp/pulseaudio.socket");
+  assert.equal(env.PULSE_SINK, "audio_output");
+  assert.equal(env.NEKO_CAPTURE_AUDIO_DEVICE, "audio_output.monitor");
+  assert.equal(env.NEKO_CAPTURE_AUDIO_CODEC, "opus");
+  const pipeline = env.NEKO_CAPTURE_AUDIO_PIPELINE;
+  assert.ok(pipeline.includes("pulsesrc device={device}"));
+  assert.ok(pipeline.includes("opusenc"));
+  assert.ok(pipeline.includes("appsink name=appsink"));
+  assert.equal(pipeline.includes("show-pointer"), false);
 });

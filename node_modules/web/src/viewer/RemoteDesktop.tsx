@@ -4,6 +4,11 @@ import { LaunchStatusOverlay } from "../LaunchStatusOverlay";
 import { ViewerClient, type ViewerStatus } from "./client";
 import { EVENT } from "./events";
 import {
+  isDrawableCursor,
+  placeCursorSprite,
+  type RemoteCursorImage,
+} from "./cursor";
+import {
   mapPoint,
   normalizeWheelDelta,
   NEKO_WHEEL_THROTTLE_MS,
@@ -95,6 +100,12 @@ export function RemoteDesktop({
 }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const cursorRef = useRef<HTMLImageElement>(null);
+  const cursorImageRef = useRef<RemoteCursorImage | null>(null);
+  const cursorUrlRef = useRef<string | null>(null);
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
+  const placeRemoteCursorRef = useRef<(pointer: { x: number; y: number } | null) => void>(() => {});
+  const showRemoteCursorRef = useRef<(image: RemoteCursorImage) => void>(() => {});
   const stageWidthRef = useRef(stageWidth);
   const stageHeightRef = useRef(stageHeight);
   stageWidthRef.current = stageWidth;
@@ -104,8 +115,6 @@ export function RemoteDesktop({
   const clientRef = useRef<ViewerClient | null>(null);
   const resolutionRef = useRef<ScreenResolution | null>(null);
   const lastScreenSetRef = useRef<ScreenResolution | null>(null);
-  const videoStreamRef = useRef<MediaStream | null>(null);
-  const audioStreamRef = useRef<MediaStream | null>(null);
   const keyboardRef = useRef<GuacamoleKeyboardInterface | null>(null);
   const audioUnlockedRef = useRef(false);
   const closedRef = useRef(false);
@@ -123,6 +132,7 @@ export function RemoteDesktop({
   const [needsAudioGesture, setNeedsAudioGesture] = useState(false);
   const [streamReady, setStreamReady] = useState(false);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const [remoteCursorActive, setRemoteCursorActive] = useState(false);
 
   const publishStreamReady = useCallback(
     (ready: boolean) => {
@@ -161,6 +171,7 @@ export function RemoteDesktop({
       overlay.style.width = `${offsetWidth}px`;
       overlay.style.height = `${offsetHeight}px`;
     }
+    placeRemoteCursorRef.current(pointerRef.current);
   }, []);
 
   const applyScreenSize = useCallback(() => {
@@ -184,18 +195,34 @@ export function RemoteDesktop({
     }, SCREEN_SET_DEBOUNCE_MS);
   }, [applyScreenSize]);
 
-  async function unlockAudio() {
+  /**
+   * Start the remote audio element. The picture stays on a muted video so it
+   * can autoplay; a click or key is what browsers accept for sound.
+   */
+  const unlockAudio = useCallback(async () => {
     const audio = audioRef.current;
-    if (!audio || audioUnlockedRef.current) return;
+    if (!(audio?.srcObject instanceof MediaStream) || audio.srcObject.getAudioTracks().length === 0) {
+      return;
+    }
+    if (audioUnlockedRef.current && !audio.muted && !audio.paused) return;
+
+    audio.muted = false;
+    audio.volume = 1;
     try {
-      audio.muted = false;
       await audio.play();
       audioUnlockedRef.current = true;
       setNeedsAudioGesture(false);
-    } catch {
+    } catch (err) {
+      const name = err instanceof DOMException ? err.name : "";
+      if (name === "AbortError" && !audio.paused && !audio.muted) {
+        audioUnlockedRef.current = true;
+        setNeedsAudioGesture(false);
+        return;
+      }
+      audioUnlockedRef.current = false;
       setNeedsAudioGesture(true);
     }
-  }
+  }, []);
 
   function sendMousePos(clientX: number, clientY: number) {
     const client = clientRef.current;
@@ -206,12 +233,99 @@ export function RemoteDesktop({
     client.sendData("mousemove", point);
   }
 
+  function hideRemoteCursor() {
+    const cursor = cursorRef.current;
+    if (cursor) cursor.style.display = "none";
+  }
+
+  function releaseCursorUrl() {
+    if (!cursorUrlRef.current) return;
+    URL.revokeObjectURL(cursorUrlRef.current);
+    cursorUrlRef.current = null;
+  }
+
+  /** Draw the remote cursor so its hotspot is the pointer inside the stage. */
+  function placeRemoteCursor(pointer: { x: number; y: number } | null) {
+    const cursor = cursorRef.current;
+    const stage = stageRef.current;
+    const image = cursorImageRef.current;
+    if (!cursor || !stage || !image || !isDrawableCursor(image) || !pointer) {
+      hideRemoteCursor();
+      return;
+    }
+    const rect = stage.getBoundingClientRect();
+    const screen = resolutionRef.current;
+    const placed = placeCursorSprite({
+      pointerX: pointer.x,
+      pointerY: pointer.y,
+      boxWidth: rect.width,
+      boxHeight: rect.height,
+      screenWidth: screen?.width || rect.width,
+      screenHeight: screen?.height || rect.height,
+      imageWidth: image.width,
+      imageHeight: image.height,
+      hotspotX: image.hotspotX,
+      hotspotY: image.hotspotY,
+    });
+    if (!placed) {
+      hideRemoteCursor();
+      return;
+    }
+    cursor.style.display = "block";
+    cursor.style.left = `${placed.left}px`;
+    cursor.style.top = `${placed.top}px`;
+    cursor.style.width = `${placed.width}px`;
+    cursor.style.height = `${placed.height}px`;
+  }
+
+  function trackPointer(clientX: number, clientY: number) {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const rect = stage.getBoundingClientRect();
+    const pointer = { x: clientX - rect.left, y: clientY - rect.top };
+    pointerRef.current = pointer;
+    const image = cursorImageRef.current;
+    if (image && isDrawableCursor(image)) setRemoteCursorActive(true);
+    placeRemoteCursor(pointer);
+  }
+
+  function showRemoteCursor(image: RemoteCursorImage) {
+    cursorImageRef.current = image;
+    const cursor = cursorRef.current;
+    if (!cursor || !isDrawableCursor(image)) {
+      releaseCursorUrl();
+      if (cursor) cursor.removeAttribute("src");
+      hideRemoteCursor();
+      // Remote browser hid its pointer (blank cursor). Don't keep the local arrow.
+      setRemoteCursorActive(true);
+      return;
+    }
+    const copy = new Uint8Array(image.png);
+    const url = URL.createObjectURL(new Blob([copy.buffer as ArrayBuffer], { type: "image/png" }));
+    const previous = cursorUrlRef.current;
+    cursorUrlRef.current = url;
+    cursor.src = url;
+    if (previous) URL.revokeObjectURL(previous);
+    if (pointerRef.current) {
+      setRemoteCursorActive(true);
+      placeRemoteCursor(pointerRef.current);
+      return;
+    }
+    // Keep the OS cursor until the pointer is over the stage and the sprite can replace it.
+    setRemoteCursorActive(false);
+    hideRemoteCursor();
+  }
+
+  placeRemoteCursorRef.current = placeRemoteCursor;
+  showRemoteCursorRef.current = showRemoteCursor;
+
   function onWheel(event: WheelEvent) {
     event.preventDefault();
     event.stopPropagation();
     if (!streamReady || !clientRef.current) return;
 
     const { x, y } = normalizeWheelDelta(event.deltaX, event.deltaY, event.deltaMode);
+    trackPointer(event.clientX, event.clientY);
     sendMousePos(event.clientX, event.clientY);
 
     if (wheelThrottleRef.current) return;
@@ -225,9 +339,17 @@ export function RemoteDesktop({
   useEffect(() => {
     let cancelled = false;
     closedRef.current = false;
+    cursorImageRef.current = null;
+    pointerRef.current = null;
+    releaseCursorUrl();
+    hideRemoteCursor();
+    setRemoteCursorActive(false);
     if (!videoRef.current || !audioRef.current) return;
     const videoEl: HTMLVideoElement = videoRef.current;
     const audioEl: HTMLAudioElement = audioRef.current;
+    videoEl.muted = true;
+    videoEl.volume = 1;
+    audioEl.volume = 1;
     const url = wsUrlFromPath(access.wsPath);
 
     const onVideoFrame = () => {
@@ -252,13 +374,22 @@ export function RemoteDesktop({
       }
     }
 
+    function stopElementStream(el: HTMLMediaElement) {
+      const stream = el.srcObject;
+      el.srcObject = null;
+      if (stream instanceof MediaStream) {
+        for (const track of stream.getTracks()) track.stop();
+      }
+    }
+
     function resetMedia() {
-      videoStreamRef.current?.getTracks().forEach((track) => track.stop());
-      audioStreamRef.current?.getTracks().forEach((track) => track.stop());
-      videoStreamRef.current = null;
-      audioStreamRef.current = null;
-      videoEl.srcObject = null;
-      audioEl.srcObject = null;
+      const shared =
+        videoEl.srcObject instanceof MediaStream && videoEl.srcObject === audioEl.srcObject;
+      stopElementStream(videoEl);
+      if (!shared) stopElementStream(audioEl);
+      else audioEl.srcObject = null;
+      audioUnlockedRef.current = false;
+      if (!cancelled) setNeedsAudioGesture(false);
       peerReadyRef.current = false;
       frameReadyRef.current = false;
       lastScreenSetRef.current = null;
@@ -332,41 +463,42 @@ export function RemoteDesktop({
         onFileTransferList(files) {
           if (!cancelled) onFileTransferList?.(files);
         },
+        onCursorImage(image) {
+          if (!cancelled) showRemoteCursorRef.current(image);
+        },
         onTrack(event) {
           if (cancelled) return;
           const track = event.track;
+          track.enabled = true;
+          const incoming = event.streams[0];
+          // Chrome stays silent if the audio track is copied into a new
+          // MediaStream, and a muted video mutes every element sharing that
+          // stream. Keep the server's stream on the audio element. The
+          // picture uses only the video track, so it can stay muted.
+          const original =
+            incoming && incoming.getTracks().some((item) => item.id === track.id)
+              ? incoming
+              : new MediaStream([track]);
 
           if (track.kind === "video") {
-            if (!videoStreamRef.current) videoStreamRef.current = new MediaStream();
-            const stream = videoStreamRef.current;
-            if (!stream.getTracks().some((item) => item.id === track.id)) {
-              stream.addTrack(track);
-            }
-            videoEl.srcObject = stream;
+            const current = videoEl.srcObject instanceof MediaStream ? videoEl.srcObject : null;
+            const picture =
+              current && current !== original && current.getAudioTracks().length === 0
+                ? current
+                : new MediaStream();
+            if (!picture.getTracks().some((item) => item.id === track.id)) picture.addTrack(track);
+            videoEl.muted = true;
+            videoEl.volume = 1;
+            if (videoEl.srcObject !== picture) videoEl.srcObject = picture;
             void videoEl.play().catch(() => undefined);
             layoutPlayer();
-            return;
           }
 
-          if (track.kind === "audio") {
-            if (!audioStreamRef.current) audioStreamRef.current = new MediaStream();
-            const stream = audioStreamRef.current;
-            if (!stream.getTracks().some((item) => item.id === track.id)) {
-              stream.addTrack(track);
-            }
-            audioEl.srcObject = stream;
+          if (track.kind === "audio" && audioEl.srcObject !== original) {
+            audioEl.srcObject = original;
             audioEl.muted = false;
-            void audioEl
-              .play()
-              .then(() => {
-                if (cancelled) return;
-                audioUnlockedRef.current = true;
-                setNeedsAudioGesture(false);
-              })
-              .catch(() => {
-                if (cancelled) return;
-                setNeedsAudioGesture(true);
-              });
+            audioEl.volume = 1;
+            void unlockAudio();
           }
         },
       });
@@ -394,6 +526,9 @@ export function RemoteDesktop({
       if (clientRefOut) clientRefOut.current = null;
       resetMedia();
       audioUnlockedRef.current = false;
+      releaseCursorUrl();
+      cursorImageRef.current = null;
+      hideRemoteCursor();
       publishStreamReady(false);
     };
   }, [
@@ -408,6 +543,7 @@ export function RemoteDesktop({
     markFrameReady,
     onFileTransferList,
     publishStreamReady,
+    unlockAudio,
   ]);
 
   useEffect(() => {
@@ -455,6 +591,7 @@ export function RemoteDesktop({
     const keyboard = createGuacamoleKeyboard();
     keyboardRef.current = keyboard;
     keyboard.onkeydown = (keysym) => {
+      void unlockAudio();
       const client = clientRef.current;
       if (!client) return true;
       client.sendData("keydown", { key: mapKeysym(keysym) });
@@ -472,16 +609,27 @@ export function RemoteDesktop({
       keyboard.onkeyup = undefined;
       keyboardRef.current = null;
     };
-  }, [streamReady]);
+  }, [streamReady, unlockAudio]);
 
   const showOverlay = !streamReady;
 
   return (
     <div ref={stageRef} className="remote-desktop">
-      <video ref={videoRef} className="remote-video" autoPlay playsInline muted />
+      <video ref={videoRef} className="remote-video" autoPlay playsInline />
+      <img
+        ref={cursorRef}
+        className="remote-cursor"
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        onError={() => {
+          hideRemoteCursor();
+          setRemoteCursorActive(false);
+        }}
+      />
       <textarea
         ref={overlayRef}
-        className="remote-overlay"
+        className={remoteCursorActive ? "remote-overlay has-remote-cursor" : "remote-overlay"}
         autoComplete="off"
         autoCorrect="off"
         autoCapitalize="off"
@@ -490,17 +638,20 @@ export function RemoteDesktop({
         onContextMenu={(event) => event.preventDefault()}
         onMouseMove={(event) => {
           event.preventDefault();
+          trackPointer(event.clientX, event.clientY);
           sendMousePos(event.clientX, event.clientY);
         }}
         onMouseDown={(event) => {
           event.preventDefault();
           overlayRef.current?.focus();
           void unlockAudio();
+          trackPointer(event.clientX, event.clientY);
           sendMousePos(event.clientX, event.clientY);
           clientRef.current?.sendData("mousedown", { key: event.button + 1 });
         }}
         onMouseUp={(event) => {
           event.preventDefault();
+          trackPointer(event.clientX, event.clientY);
           sendMousePos(event.clientX, event.clientY);
           clientRef.current?.sendData("mouseup", { key: event.button + 1 });
         }}
@@ -512,6 +663,8 @@ export function RemoteDesktop({
           }
         }}
         onMouseLeave={() => {
+          pointerRef.current = null;
+          hideRemoteCursor();
           keyboardRef.current?.reset();
         }}
         onPaste={(event) => {

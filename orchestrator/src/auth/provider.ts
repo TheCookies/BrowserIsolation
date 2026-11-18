@@ -8,7 +8,7 @@ export type AuthenticatedUser = {
   role: Role;
   /**
    * Stable ownership identity for preferences and profile volumes.
-   * Local: `local:<username>`. SAML: `saml:<NameID>`. LDAP: `ldap:<objectGUID|DN>`.
+   * Local: `local:<username>`. SAML: `saml:<NameID>`. LDAP: `ldap:<objectGUID|sid|uuid|DN>`.
    * See docs/USER_IDENTITY.md.
    */
   subjectId: string;

@@ -8,6 +8,7 @@ import type {
   SystemInitPayload,
   ScreenResolutionPayload,
 } from "./messages";
+import { parseRemoteCursorFrame, type RemoteCursorImage } from "./cursor";
 import type { ScreenResolution } from "./types";
 
 export type ViewerStatus = "idle" | "connecting" | "connected" | "reconnecting" | "disconnected";
@@ -18,6 +19,8 @@ export type ViewerClientCallbacks = {
   onResolution?: (resolution: ScreenResolution) => void;
   onClipboard?: (text: string) => void;
   onFileTransferList?: (files: FileTransferListPayload["files"]) => void;
+  /** Remote browser cursor bitmap (arrow, hand, I-beam, …) plus hotspot. */
+  onCursorImage?: (image: RemoteCursorImage) => void;
 };
 
 export class ViewerClient extends BaseClient {
@@ -76,8 +79,11 @@ export class ViewerClient extends BaseClient {
     this.callbacks.onTrack(event);
   }
 
-  protected [EVENT.DATA](_data: unknown) {
-    /* cursor overlays unused in this viewer */
+  protected [EVENT.DATA](data: ArrayBuffer) {
+    const frame = parseRemoteCursorFrame(data);
+    if (frame?.type === "image") {
+      this.callbacks.onCursorImage?.(frame.image);
+    }
   }
 
   protected [EVENT.SYSTEM.INIT](payload: SystemInitPayload) {

@@ -99,6 +99,12 @@ export function registerSessionRoutes(app: FastifyInstance, deps: AppDeps): void
         if (message === "browser_disabled" || message === "invalid_browser") {
           return reply.code(400).send({ error: message });
         }
+        if (message === "session_conflict") {
+          return reply.code(409).send({
+            error: message,
+            detail: "Another browser session is already using this account identity.",
+          });
+        }
         if (message === "worker_auth_failed" || message === "unauthorized") {
           return reply.code(502).send({
             error: "worker_auth_failed",

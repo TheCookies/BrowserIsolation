@@ -135,6 +135,7 @@ export abstract class BaseClient extends EventEmitter {
       this._peer.onsignalingstatechange = null;
       this._peer.oniceconnectionstatechange = null;
       this._peer.ontrack = null;
+      this._peer.ondatachannel = null;
       this._peer.onicecandidate = null;
       this._peer.onnegotiationneeded = null;
       try {
@@ -298,10 +299,23 @@ export abstract class BaseClient extends EventEmitter {
       })();
     };
 
+    // Neko opens its own "data" channel (cursor image + position) and, in legacy
+    // mode, also accepts input on the channel the client creates. Listen to both.
+    this._peer.ondatachannel = (event) => {
+      this.watchDataChannel(event.channel, false);
+    };
+
     this._channel = this._peer.createDataChannel("data");
-    this._channel.onerror = () => this.onError(new Error("datachannel error"));
-    this._channel.onmessage = (event) => this.onData(event);
-    this._channel.onclose = () => this.onDisconnected(new Error("peer data channel closed"));
+    this.watchDataChannel(this._channel, true);
+  }
+
+  private watchDataChannel(channel: RTCDataChannel, closeOnEnd: boolean) {
+    channel.binaryType = "arraybuffer";
+    channel.onerror = () => this.onError(new Error("datachannel error"));
+    channel.onmessage = (event) => this.onData(event);
+    if (closeOnEnd) {
+      channel.onclose = () => this.onDisconnected(new Error("peer data channel closed"));
+    }
   }
 
   public async setRemoteOffer(sdp: string) {
@@ -385,7 +399,16 @@ export abstract class BaseClient extends EventEmitter {
   }
 
   private onData(e: MessageEvent) {
-    this[EVENT.DATA](e.data);
+    const raw = e.data;
+    if (raw instanceof ArrayBuffer) {
+      this[EVENT.DATA](raw);
+      return;
+    }
+    if (typeof Blob !== "undefined" && raw instanceof Blob) {
+      void raw.arrayBuffer().then((buffer) => {
+        this[EVENT.DATA](buffer);
+      });
+    }
   }
 
   private onTrack(event: RTCTrackEvent) {
@@ -434,5 +457,5 @@ export abstract class BaseClient extends EventEmitter {
   protected abstract [EVENT.CONNECTED](): void;
   protected abstract [EVENT.DISCONNECTED](reason?: Error): void;
   protected abstract [EVENT.TRACK](event: RTCTrackEvent): void;
-  protected abstract [EVENT.DATA](data: unknown): void;
+  protected abstract [EVENT.DATA](data: ArrayBuffer): void;
 }
