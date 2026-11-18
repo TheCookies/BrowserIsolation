@@ -133,7 +133,7 @@ There is no automated frontend test suite yet; verify UI changes manually agains
 
 **Launch returns an error about ports**
 
-- Pool exhausted → widen `WEBRTC_PORT_RANGE` and publish those ports (Compose worker service publishes `52000-52099` by default).
+- Pool exhausted → widen `WEBRTC_PORT_RANGE` and publish those ports (Compose worker service publishes `52000-52199` by default).
 
 **Admin UI missing a feature that the API has**
 

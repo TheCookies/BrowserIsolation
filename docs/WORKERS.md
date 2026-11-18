@@ -104,14 +104,14 @@ WORKER_ID=edge1
 WORKER_TOKEN=replace-me-with-a-long-secret   # or WORKER_ENROLL_TOKEN=
 PUBLIC_IP=10.0.0.5          # client-reachable
 WORKER_PORT=8090
-WEBRTC_PORT_RANGE=52000-52099
+WEBRTC_PORT_RANGE=52000-52199
 # Align published ports in docker-compose.yml if you change the range
 
 podman compose --profile worker up -d worker
 # Docker: CONTAINER_SOCKET=/var/run/docker.sock docker compose --profile worker up -d worker
 ```
 
-The `worker` service publishes `52000-52099` UDP+TCP by default.
+The `worker` service publishes `52000-52199` UDP+TCP by default.
 
 ## Manual / env registration (deprecated fallback)
 

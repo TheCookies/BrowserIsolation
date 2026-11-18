@@ -998,7 +998,7 @@ RBI_INTEGRATION=1 npm test -w orchestrator -- test/integration.test.ts</code></p
 <li>Logged in: use <code>csrfToken</code> from <code>GET /api/me</code> (the SPA does this in <code>api.ts</code>).</li>
 <li>Exempt: SAML ACS and <code>POST /api/workers/enroll</code>.</li></ul>
 <p><strong>Launch returns an error about ports</strong></p>
-<ul><li>Pool exhausted → widen <code>WEBRTC_PORT_RANGE</code> and publish those ports (Compose worker service publishes <code>52000-52099</code> by default).</li></ul>
+<ul><li>Pool exhausted → widen <code>WEBRTC_PORT_RANGE</code> and publish those ports (Compose worker service publishes <code>52000-52199</code> by default).</li></ul>
 <p><strong>Admin UI missing a feature that the API has</strong></p>
 <ul><li>Wire <code>web/src/api.ts</code> + a page under <code>pages/admin/</code>. Admin is role-gated in both SPA and API.</li></ul>
 <h2 id="code-style">Code style</h2>
@@ -1371,7 +1371,7 @@ podman compose up -d --build</code></pre>
 <li>Logs into GHCR and pulls <code>:latest</code></li>
 <li>Creates <code>/etc/browser-isolation/.env</code> on first run (<code>BROWSER_NETWORK_MODE=host</code>, <code>DOCKER_SOCKET=/run/podman/podman.sock</code>, enroll token, etc.)</li>
 <li>Starts <code>browser-isolation</code> with <code>--network=host --privileged</code> and the socket mount above</li>
-<li>Opens firewall ports <code>8080/tcp</code> and <code>52000-52099</code> tcp/udp when <code>firewall-cmd</code> exists</li></ol>
+<li>Opens firewall ports <code>8080/tcp</code> and <code>52000-52199</code> tcp/udp when <code>firewall-cmd</code> exists</li></ol>
 <h3 id="first-login">First login</h3>
 <div class="table-wrap"><table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td>URL</td><td><code>http://YOUR_ETH0_IP:8080</code></td></tr>
 <tr><td>User</td><td><code>admin</code></td></tr>
@@ -1404,8 +1404,8 @@ sudo podman run -d \
 <pre class="code-block" data-lang="bash"><code>sudo podman logs browser-isolation 2&gt;&amp;1 | grep -A2 &quot;Portal admin password&quot;</code></pre>
 <p>Optional firewall (installers do this automatically):</p>
 <pre class="code-block" data-lang="bash"><code>sudo firewall-cmd --permanent --add-port=8080/tcp
-sudo firewall-cmd --permanent --add-port=52000-52099/tcp
-sudo firewall-cmd --permanent --add-port=52000-52099/udp
+sudo firewall-cmd --permanent --add-port=52000-52199/tcp
+sudo firewall-cmd --permanent --add-port=52000-52199/udp
 sudo firewall-cmd --reload</code></pre>
 <hr />
 <h1 id="updates-keeps-settings-database">Updates (keeps settings + database)</h1>
@@ -1545,7 +1545,7 @@ podman compose up -d --build
 <div class="table-wrap"><table><thead><tr><th>Symptom</th><th>Likely fix</th></tr></thead><tbody><tr><td><code>denied</code> / <code>unauthorized</code> on pull</td><td><code>podman login ghcr.io</code> with <code>read:packages</code>; use <code>sudo</code> + <code>--authfile</code> if the service runs rootful</td></tr>
 <tr><td>Package not found after first Action</td><td>Wait for a green <strong>Publish image</strong> run; check org package visibility</td></tr>
 <tr><td>Orchestrator up but cannot create browsers</td><td><code>podman.socket</code> not running; socket not mounted at <code>/run/podman/podman.sock</code>; SELinux — installers use <code>--privileged</code> + <code>label=disable</code></td></tr>
-<tr><td>WebRTC fails remotely</td><td>Wrong <code>PUBLIC_IP</code>; firewall blocking <code>52000-52099</code> UDP/TCP; need <code>BROWSER_NETWORK_MODE=host</code> on Alma</td></tr>
+<tr><td>WebRTC fails remotely</td><td>Wrong <code>PUBLIC_IP</code>; firewall blocking <code>52000-52199</code> UDP/TCP; need <code>BROWSER_NETWORK_MODE=host</code> on Alma</td></tr>
 <tr><td>Unit / container starts with old image</td><td>Re-run <code>install-orchestrator.sh</code> / <code>install-worker.sh</code></td></tr></tbody></table></div>
 <hr />
 <h2 id="related-files">Related files</h2>
@@ -1630,12 +1630,12 @@ WORKER_ID=edge1
 WORKER_TOKEN=replace-me-with-a-long-secret   # or WORKER_ENROLL_TOKEN=
 PUBLIC_IP=10.0.0.5          # client-reachable
 WORKER_PORT=8090
-WEBRTC_PORT_RANGE=52000-52099
+WEBRTC_PORT_RANGE=52000-52199
 # Align published ports in docker-compose.yml if you change the range
 
 podman compose --profile worker up -d worker
 # Docker: CONTAINER_SOCKET=/var/run/docker.sock docker compose --profile worker up -d worker</code></pre>
-<p>The <code>worker</code> service publishes <code>52000-52099</code> UDP+TCP by default.</p>
+<p>The <code>worker</code> service publishes <code>52000-52199</code> UDP+TCP by default.</p>
 <h2 id="manual-env-registration-deprecated-fallback">Manual / env registration (deprecated fallback)</h2>
 <p><strong>Bootstrap via env</strong> (orchestrator host):</p>
 <pre class="code-block" data-lang="bash"><code>WORKERS=edge1|http://10.0.0.5:8090|10.0.0.5|replace-me-with-a-long-secret

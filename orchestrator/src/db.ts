@@ -177,6 +177,16 @@ export function openDatabase(filePath: string): Database.Database {
       active_sessions INTEGER NOT NULL DEFAULT 0
     );
 
+    -- In-flight launches. One row per subject so concurrent LDAP users each get
+    -- their own port and container instead of sharing or blocking on one session.
+    CREATE TABLE IF NOT EXISTS launch_claims (
+      subject_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      webrtc_port INTEGER NOT NULL,
+      worker_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS profile_placements (
       subject_id TEXT NOT NULL,
       browser TEXT NOT NULL,

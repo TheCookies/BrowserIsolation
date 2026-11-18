@@ -153,7 +153,7 @@ podman compose --profile worker up -d worker
 | `denied` / `unauthorized` / `403` on `ghcr.io` | Make the **package** public (not just the repo), or `GHCR_USER` + `GHCR_TOKEN` with `read:packages`. Run `sudo podman logout ghcr.io` to drop a revoked login |
 | Package not found after first Action | Wait for a green **Publish image** run; check org package visibility |
 | Orchestrator up but cannot create browsers | `podman.socket` not running; socket not mounted at `/run/podman/podman.sock`; SELinux — installers use `--privileged` + `label=disable` |
-| WebRTC fails remotely | Wrong `PUBLIC_IP`; firewall blocking `52000-52099` UDP/TCP; need `BROWSER_NETWORK_MODE=host` on Alma |
+| WebRTC fails remotely | Wrong `PUBLIC_IP`; firewall blocking `52000-52199` UDP/TCP; need `BROWSER_NETWORK_MODE=host` on Alma |
 | Unit / container starts with old image | Re-run `install-orchestrator.sh` / `install-worker.sh` |
 
 ---

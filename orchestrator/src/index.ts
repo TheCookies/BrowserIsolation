@@ -40,6 +40,8 @@ async function main(): Promise<void> {
   const sessions = createSessionStore(db, () => config.sessionTtlMs);
   sessions.deleteExpired();
   const browserStore = createBrowserSessionStore(db);
+  // A crashed process leaves claims behind. Those launches are gone; free the ports.
+  browserStore.clearLaunchClaims();
   const preferences = createUserPreferencesStore(db);
   const audit = createAuditStore(db, {
     isEnabled: (action) => config.auditEnabledActions.includes(action),

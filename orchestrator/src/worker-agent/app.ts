@@ -2,6 +2,7 @@ import type { IncomingMessage, Server } from "node:http";
 import type { Socket } from "node:net";
 import httpProxy from "http-proxy";
 import Fastify, { type FastifyInstance } from "fastify";
+import { createConcurrencyLimit } from "../async-limit";
 import type { Config } from "../config";
 import type { ContainerRuntime } from "../docker/container-runtime";
 import { collectHostMetrics } from "../host-metrics";
@@ -31,6 +32,8 @@ export async function buildWorkerAgent(deps: WorkerAgentDeps): Promise<FastifyIn
   const neko = createNekoClient();
   const app = Fastify({ logger: true });
   const portByContainer = new Map<string, number>();
+  // Overlapping creates stay parallel, but a stampede cannot pin the container engine.
+  const limitCreate = createConcurrencyLimit(24);
 
   app.addHook("onRequest", async (request, reply) => {
     if (request.url.startsWith("/v1/health")) return;
@@ -99,7 +102,9 @@ export async function buildWorkerAgent(deps: WorkerAgentDeps): Promise<FastifyIn
     let containerId = "";
     try {
       webrtcPort = ports.allocate();
-      const created = await runtime.createBrowserContainer(toCreateInput(body, webrtcPort));
+      const created = await limitCreate(() =>
+        runtime.createBrowserContainer(toCreateInput(body, webrtcPort)),
+      );
       containerId = created.id;
       portByContainer.set(created.id, webrtcPort);
 

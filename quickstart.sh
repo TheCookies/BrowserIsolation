@@ -44,10 +44,10 @@ open_ufw() {
   if ! ufw status 2>/dev/null | grep -q "Status: active"; then
     return 0
   fi
-  echo "==> Opening UFW ports ${PORT}/tcp and 52000-52099 tcp/udp"
+  echo "==> Opening UFW ports ${PORT}/tcp and 52000-52199 tcp/udp"
   ufw allow "${PORT}/tcp" >/dev/null
-  ufw allow 52000:52099/tcp >/dev/null
-  ufw allow 52000:52099/udp >/dev/null
+  ufw allow 52000:52199/tcp >/dev/null
+  ufw allow 52000:52199/udp >/dev/null
 }
 
 env_get() {
@@ -123,6 +123,6 @@ else
   echo "Login:       admin password is in ${ENV_FILE} (AUTH_USERS)"
 fi
 echo
-echo "Cloud firewalls (security groups) are separate: allow TCP ${PORT} and TCP+UDP 52000-52099."
+echo "Cloud firewalls (security groups) are separate: allow TCP ${PORT} and TCP+UDP 52000-52199."
 echo "Auto-update is on: a push to main publishes :latest, this host applies it within about 5 minutes."
 echo "  systemctl status browser-isolation-update.timer"

@@ -66,24 +66,7 @@ function parseIceServers(raw: string): IceServerConfig[] {
 }
 
 const PROXY_TARGET_TTL_MS = 10_000;
-
-/**
- * Same-user launches share one queue so a second click waits and reconnects.
- * Different users (including simultaneous LDAP logins) stay parallel.
- */
-function enqueueLaunch<T>(chains: Map<string, Promise<void>>, key: string, task: () => Promise<T>): Promise<T> {
-  const previous = chains.get(key) ?? Promise.resolve();
-  const run = previous.then(task, task);
-  const settled = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  chains.set(key, settled);
-  void settled.finally(() => {
-    if (chains.get(key) === settled) chains.delete(key);
-  });
-  return run;
-}
+const LAUNCH_WAIT_MS = 120_000;
 
 /** Worker is down or rejected the token — stop sending it new launches. */
 function isWorkerTransportFailure(error: unknown): boolean {
@@ -114,7 +97,6 @@ export function createBrowserSessionService(deps: {
   const { config, store, placement, preferences } = deps;
   const neko = deps.neko ?? createNekoClient();
   const proxyTargetCache = new Map<string, CachedProxyTarget>();
-  const launchChains = new Map<string, Promise<void>>();
 
   function syncLocalActiveCounts(): void {
     for (const worker of placement.store.list()) {
@@ -178,6 +160,21 @@ export function createBrowserSessionService(deps: {
       return null;
     }
     return byName;
+  }
+
+  async function waitForOwnLaunch(
+    subjectId: string,
+    sessionId: string,
+  ): Promise<BrowserSessionRecord | null> {
+    const deadline = Date.now() + LAUNCH_WAIT_MS;
+    while (Date.now() < deadline) {
+      const session = store.getBySubjectId(subjectId);
+      if (session) return session;
+      const claim = store.getLaunchClaim(subjectId);
+      if (!claim || claim.sessionId !== sessionId) return null;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    return null;
   }
 
   async function launchOne(
@@ -248,10 +245,38 @@ export function createBrowserSessionService(deps: {
       const nekoUserPassword = randomToken();
       const now = Date.now();
 
+      // Claim this user before any Docker work. Other LDAP users claim their own
+      // ports in parallel; a second click from the same person waits.
+      const reserved = store.reserveLaunch({
+        subjectId: user.subjectId,
+        workerId: worker.id,
+        sessionId,
+        portRange:
+          worker.kind === "local"
+            ? { start: config.webrtcPortStart, end: config.webrtcPortEnd }
+            : undefined,
+      });
+      if (reserved.status === "session") {
+        try {
+          await ensureRunning(reserved.session);
+          store.touch(reserved.session.id);
+          return { session: reserved.session, reconnect: true };
+        } catch {
+          await destroyRecord(reserved.session);
+          continue;
+        }
+      }
+      if (reserved.status === "busy") {
+        const waited = await waitForOwnLaunch(user.subjectId, reserved.sessionId);
+        if (waited) return { session: waited, reconnect: true };
+        if (store.getLaunchClaim(user.subjectId)) {
+          throw Object.assign(new Error("launch_in_progress"), { statusCode: 503 });
+        }
+        continue;
+      }
+
       let createdContainerId: string | null = null;
-      // Local ports are reserved at allocate() and must stay reserved until the
-      // session row exists. Releasing earlier lets a concurrent launch reuse it.
-      let heldLocalPort: number | null = null;
+      let committed = false;
       try {
         const created = await placement.createBrowser(worker, {
           sessionId,
@@ -261,9 +286,9 @@ export function createBrowserSessionService(deps: {
           nekoAdminPassword,
           nekoUserPassword,
           persistProfile,
+          webrtcPort: reserved.webrtcPort > 0 ? reserved.webrtcPort : undefined,
         });
         createdContainerId = created.containerId;
-        if (worker.kind === "local") heldLocalPort = created.webrtcPort;
 
         // Local containers are reached over the Docker network; wait for readiness here.
         // Remote workers already wait inside the agent before returning.
@@ -297,20 +322,18 @@ export function createBrowserSessionService(deps: {
           createdAt: now,
           lastActivityAt: now,
         };
-        store.insert(record);
-        if (heldLocalPort !== null) {
-          placement.releaseLocalPort(heldLocalPort);
-          heldLocalPort = null;
-        }
+        store.commitLaunch(user.subjectId, record);
+        committed = true;
         syncLocalActiveCounts();
         return { session: record, reconnect: false };
       } catch (error) {
-        if (heldLocalPort !== null) {
-          placement.releaseLocalPort(heldLocalPort);
-          heldLocalPort = null;
-        }
-        if (createdContainerId) {
-          await placement.remove(worker.id, createdContainerId).catch(() => undefined);
+        if (!committed) {
+          store.releaseLaunch(user.subjectId);
+          if (createdContainerId) {
+            await placement.remove(worker.id, createdContainerId).catch(() => undefined);
+          }
+        } else {
+          throw error;
         }
         syncLocalActiveCounts();
         excluded.add(worker.id);
@@ -379,9 +402,7 @@ export function createBrowserSessionService(deps: {
     },
 
     launch(user, browser) {
-      // Queue per subject so one person cannot start two containers, while
-      // other LDAP users still launch at the same time.
-      return enqueueLaunch(launchChains, user.subjectId, () => launchOne(user, browser));
+      return launchOne(user, browser);
     },
 
     async destroyForUser(user) {

@@ -20,7 +20,7 @@ CONFIG_DIR="/etc/browser-isolation"
 ENV_FILE="${CONFIG_DIR}/.env"
 AUTH_FILE="${AUTH_FILE:-/etc/containers/auth.json}"
 WORKER_PORT="${WORKER_PORT:-8090}"
-WEBRTC_PORT_RANGE="${WEBRTC_PORT_RANGE:-52000-52099}"
+WEBRTC_PORT_RANGE="${WEBRTC_PORT_RANGE:-52000-52199}"
 REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/TheCookies/BrowserIsolation/main}"
 HOST_STATE="${HOST_STATE:-/var/lib/browser-isolation}"
 
@@ -326,8 +326,8 @@ podman run -d \
 
 open_firewall_ports \
   "${WORKER_PORT}/tcp" \
-  "52000-52099/tcp" \
-  "52000-52099/udp"
+  "52000-52199/tcp" \
+  "52000-52199/udp"
 
 echo "==> Waiting for worker health"
 ok=0

@@ -12,8 +12,8 @@ Exec=node dist/worker-main.js
 
 PublishPort=8090:8090
 # WebRTC mux range — keep in sync with WEBRTC_PORT_RANGE in the env file
-PublishPort=52000-52099:52000-52099/tcp
-PublishPort=52000-52099:52000-52099/udp
+PublishPort=52000-52199:52000-52199/tcp
+PublishPort=52000-52199:52000-52199/udp
 
 EnvironmentFile=/etc/browser-isolation/browser-isolation.env
 Environment=HOST=0.0.0.0

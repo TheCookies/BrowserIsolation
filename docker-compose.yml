@@ -19,8 +19,8 @@ services:
     ports:
       - "${PORT:-8080}:8080"
       # Must match WEBRTC_PORT_RANGE on this host (single-node local worker).
-      - "52000-52099:52000-52099/udp"
-      - "52000-52099:52000-52099/tcp"
+      - "52000-52199:52000-52199/udp"
+      - "52000-52199:52000-52199/tcp"
     env_file:
       - .env
     environment:
@@ -62,8 +62,8 @@ services:
     ports:
       - "${WORKER_PORT:-8090}:8090"
       # Must match WEBRTC_PORT_RANGE on this host (edit if you changed the range).
-      - "52000-52099:52000-52099/udp"
-      - "52000-52099:52000-52099/tcp"
+      - "52000-52199:52000-52199/udp"
+      - "52000-52199:52000-52199/tcp"
     env_file:
       - .env
     environment:

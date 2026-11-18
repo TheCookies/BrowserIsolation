@@ -137,6 +137,99 @@ test("objectGUID and DN become stable ldap subject ids", () => {
   assert.equal(user.subjectId, "ldap:01020304-0506-0708-090a-0b0c0d0e0f10");
 });
 
+test("different LDAP users keep different subjects when objectGUID is missing or unusable", () => {
+  const ldapConfig = {
+    ldapUsernameAttr: "",
+    ldapGroupsAttr: "",
+    ldapAdminGroup: "",
+  };
+  const alice = entryToUser(
+    {
+      dn: "CN=Alice,OU=Users,DC=example,DC=com",
+      attributes: { sAMAccountName: "alice" },
+    },
+    "alice",
+    ldapConfig,
+  );
+  const bob = entryToUser(
+    {
+      dn: "CN=Bob,OU=Users,DC=example,DC=com",
+      attributes: { sAMAccountName: "bob" },
+    },
+    "bob",
+    ldapConfig,
+  );
+  assert.equal(alice.subjectId, "ldap:CN=Alice,OU=Users,DC=example,DC=com");
+  assert.equal(bob.subjectId, "ldap:CN=Bob,OU=Users,DC=example,DC=com");
+  assert.notEqual(alice.subjectId, bob.subjectId);
+
+  const nil = Buffer.alloc(16, 0);
+  const aliceNil = entryToUser(
+    {
+      dn: "CN=Alice,OU=Users,DC=example,DC=com",
+      attributes: { objectGUID: nil },
+    },
+    "alice",
+    ldapConfig,
+  );
+  const bobNil = entryToUser(
+    {
+      dn: "CN=Bob,OU=Users,DC=example,DC=com",
+      attributes: { objectGUID: Buffer.alloc(16, 0xff) },
+    },
+    "bob",
+    ldapConfig,
+  );
+  assert.equal(aliceNil.subjectId, alice.subjectId);
+  assert.equal(bobNil.subjectId, bob.subjectId);
+
+  // ldapts can hand back a length-16 binary string that is the same for every user.
+  const smashed = "0123456789abcdef";
+  const cara = entryToUser(
+    {
+      dn: "CN=Cara,OU=Users,DC=example,DC=com",
+      attributes: { objectGUID: smashed },
+    },
+    "cara",
+    ldapConfig,
+  );
+  const dana = entryToUser(
+    {
+      dn: "CN=Dana,OU=Users,DC=example,DC=com",
+      attributes: { objectGUID: smashed },
+    },
+    "dana",
+    ldapConfig,
+  );
+  assert.equal(cara.subjectId, "ldap:CN=Cara,OU=Users,DC=example,DC=com");
+  assert.notEqual(cara.subjectId, dana.subjectId);
+
+  const guidA = Buffer.from([
+    0x04, 0x03, 0x02, 0x01, 0x06, 0x05, 0x08, 0x07, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+  ]);
+  const guidB = Buffer.from([
+    0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x11,
+  ]);
+  const withA = entryToUser(
+    {
+      dn: "CN=Alice,OU=Users,DC=example,DC=com",
+      attributes: { objectGUID: guidA },
+    },
+    "alice",
+    ldapConfig,
+  );
+  const withB = entryToUser(
+    {
+      dn: "CN=Bob,OU=Users,DC=example,DC=com",
+      attributes: { objectGUID: guidB },
+    },
+    "bob",
+    ldapConfig,
+  );
+  assert.equal(withA.subjectId, "ldap:01020304-0506-0708-090a-0b0c0d0e0f10");
+  assert.notEqual(withA.subjectId, withB.subjectId);
+});
+
 test("composite auth prefers local users and never falls through to LDAP", async () => {
   const localUsers = {
     get(username: string) {

@@ -142,30 +142,28 @@ function asObjectGuidBuffer(
 ): Buffer | null {
   const raw = Array.isArray(value) ? value[0] : value;
   if (!raw) return null;
-  if (Buffer.isBuffer(raw) && raw.length === 16) return raw;
+  // Copy immediately. ldapts may reuse the underlying bytes across searches.
+  if (Buffer.isBuffer(raw) && raw.length === 16) return Buffer.from(raw);
   if (raw instanceof Uint8Array && raw.length === 16) return Buffer.from(raw);
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    // ldapts sometimes yields a binary string of length 16.
-    if (trimmed.length === 16) {
-      const buf = Buffer.from(trimmed, "binary");
-      if (buf.length === 16) return buf;
-    }
-    // Already-formatted GUID from some directories.
-    if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(trimmed)) {
-      return null; // handled as string id below
-    }
-    try {
-      const b64 = Buffer.from(trimmed, "base64");
-      if (b64.length === 16) return b64;
-    } catch {
-      /* ignore */
-    }
-  }
   return null;
 }
 
+/** True when a parsed GUID cannot distinguish directory users. */
+function isUselessGuid(guid: string): boolean {
+  const hex = guid.replace(/-/g, "").toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(hex)) return true;
+  return /^0+$/.test(hex) || /^(.)\1+$/.test(hex);
+}
+
+function readEntryDn(entry: LdapUserEntry): string {
+  const direct = typeof entry.dn === "string" ? entry.dn.trim() : String(entry.dn ?? "").trim();
+  if (direct && direct !== "[object Object]") return direct;
+  const key = Object.keys(entry.attributes).find((name) => name.toLowerCase() === "distinguishedname");
+  return (key ? asStringList(entry.attributes[key])[0] : "")?.trim() ?? "";
+}
+
 export function resolveLdapSubjectId(entry: LdapUserEntry): string {
+  const dn = readEntryDn(entry);
   const guidKey = Object.keys(entry.attributes).find(
     (name) => name.toLowerCase() === "objectguid",
   );
@@ -173,17 +171,25 @@ export function resolveLdapSubjectId(entry: LdapUserEntry): string {
     const raw = entry.attributes[guidKey];
     const buf = asObjectGuidBuffer(raw as Buffer | Buffer[] | string | string[] | undefined);
     if (buf) {
-      return ldapSubjectId(formatObjectGuid(buf));
+      const guid = formatObjectGuid(buf);
+      // A shared or empty GUID would put every LDAP user on one browser.
+      if (!isUselessGuid(guid)) return ldapSubjectId(guid);
     }
     const single = Array.isArray(raw) ? raw[0] : raw;
     if (typeof single === "string" && single.trim()) {
       const trimmed = single.trim();
-      if (/^[0-9a-fA-F-]{36}$/.test(trimmed)) {
+      if (
+        /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
+          trimmed,
+        ) &&
+        !isUselessGuid(trimmed)
+      ) {
         return ldapSubjectId(trimmed.toLowerCase());
       }
     }
   }
-  return ldapSubjectId(entry.dn);
+  if (!dn) throw new Error("LDAP entry has no DN or objectGUID.");
+  return ldapSubjectId(dn);
 }
 
 export function entryToUser(

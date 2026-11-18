@@ -1,3 +1,4 @@
+import { createConcurrencyLimit } from "../async-limit";
 import type { Config } from "../config";
 import type {
   BrowserContainerInfo,
@@ -36,7 +37,10 @@ export type WorkerPlacement = {
   probeWorker(workerId: string): Promise<{ ok: true } | { ok: false; error: string }>;
   createBrowser(
     worker: WorkerRecord,
-    request: Omit<WorkerCreateBrowserRequest, "settings">,
+    request: Omit<WorkerCreateBrowserRequest, "settings"> & {
+      /** Local launches pass a port already reserved for this user. */
+      webrtcPort?: number;
+    },
   ): Promise<PlacementCreateResult>;
   /**
    * Drop a local in-flight WebRTC port hold. Call after the session row is
@@ -92,6 +96,9 @@ export function createWorkerPlacement(deps: {
   localPorts: PortPool;
 }): WorkerPlacement {
   const { config, store, localRuntime, localPorts } = deps;
+  // Many LDAP users can be connected at once. Cap only how many containers we
+  // *start* together so the Docker socket is not wedged by one stuck create.
+  const limitLocalCreate = createConcurrencyLimit(24);
 
   function requireWorker(id: string): WorkerRecord {
     const worker = store.get(id);
@@ -217,10 +224,12 @@ export function createWorkerPlacement(deps: {
       const full: WorkerCreateBrowserRequest = { ...request, settings };
 
       if (worker.kind === "local") {
-        const webrtcPort = localPorts.allocate();
+        const provided = request.webrtcPort;
+        const webrtcPort = provided != null && provided > 0 ? provided : localPorts.allocate();
+        const releaseAllocated = !(provided != null && provided > 0);
         let containerId = "";
         try {
-          const created = await localRuntime.createBrowserContainer({
+          const created = await limitLocalCreate(() => localRuntime.createBrowserContainer({
             sessionId: full.sessionId,
             owner: full.owner,
             subjectId: full.subjectId,
@@ -230,7 +239,7 @@ export function createWorkerPlacement(deps: {
             nekoUserPassword: full.nekoUserPassword,
             persistProfile: full.persistProfile,
             settings,
-          });
+          }));
           containerId = created.id;
           const result: PlacementCreateResult = {
             workerId: worker.id,
@@ -252,7 +261,7 @@ export function createWorkerPlacement(deps: {
           return result;
         } catch (error) {
           if (containerId) await localRuntime.remove(containerId).catch(() => undefined);
-          localPorts.release(webrtcPort);
+          if (releaseAllocated) localPorts.release(webrtcPort);
           throw error;
         }
       }

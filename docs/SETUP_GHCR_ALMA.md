@@ -80,7 +80,7 @@ What it does:
 2. Logs into GHCR and pulls `:latest`
 3. Creates `/etc/browser-isolation/.env` on first run (`BROWSER_NETWORK_MODE=host`, `DOCKER_SOCKET=/run/podman/podman.sock`, enroll token, etc.)
 4. Starts `browser-isolation` with `--network=host --privileged` and the socket mount above
-5. Opens firewall ports `8080/tcp` and `52000-52099` tcp/udp when `firewall-cmd` exists
+5. Opens firewall ports `8080/tcp` and `52000-52199` tcp/udp when `firewall-cmd` exists
 6. Enables `browser-isolation-update.timer` so a push to `main` (new GHCR `:latest`) is applied within about 5 minutes
 
 ### First login
@@ -132,8 +132,8 @@ Optional firewall (installers do this automatically):
 
 ```bash
 sudo firewall-cmd --permanent --add-port=8080/tcp
-sudo firewall-cmd --permanent --add-port=52000-52099/tcp
-sudo firewall-cmd --permanent --add-port=52000-52099/udp
+sudo firewall-cmd --permanent --add-port=52000-52199/tcp
+sudo firewall-cmd --permanent --add-port=52000-52199/udp
 sudo firewall-cmd --reload
 ```
 

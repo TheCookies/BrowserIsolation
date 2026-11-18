@@ -31,7 +31,7 @@ A `403 Forbidden` on `ghcr.io` is almost always a private package or a leftover/
 | User | `admin` |
 | Password | printed at the end, also in `/etc/browser-isolation/admin-password.txt` |
 
-From another machine, allow **TCP 8080** and **TCP + UDP 52000–52099**. A cloud security group is separate from the firewall rules the script adds on the VM.
+From another machine, allow **TCP 8080** and **TCP + UDP 52000–52199**. A cloud security group is separate from the firewall rules the script adds on the VM.
 
 After that, **do not re-run the curl command for routine updates.** The installer enables a systemd timer that pulls `ghcr.io/thecookies/browserisolation:latest` every 5 minutes. Push to `main`, wait for the **Publish image** Action to go green, and the VM recreates the portal on the next tick. `/etc/browser-isolation/.env` is kept.
 
@@ -75,7 +75,7 @@ docker compose up --build -d
 
 Open **http://localhost:8080**. First-boot login is `admin` / `admin`. The first **Launch** still downloads the browser image.
 
-To reach it from another device, set `PUBLIC_IP` to this machine’s LAN address, start Compose again, and allow TCP `8080` plus TCP and UDP `52000`–`52099`.
+To reach it from another device, set `PUBLIC_IP` to this machine’s LAN address, start Compose again, and allow TCP `8080` plus TCP and UDP `52000`–`52199`.
 
 ## After it is up
 

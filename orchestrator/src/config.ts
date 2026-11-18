@@ -166,7 +166,7 @@ export function parseByteSize(name: string, raw: string): number {
 export function parsePortRange(name: string, raw: string): { start: number; end: number } {
   const match = raw.trim().match(/^(\d+)\s*-\s*(\d+)$/);
   if (!match) {
-    throw new Error(`${name} must look like 52000-52099.`);
+    throw new Error(`${name} must look like 52000-52199.`);
   }
   const start = Number(match[1]);
   const end = Number(match[2]);
@@ -232,7 +232,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, baseDir: string): Config {
     : path.join(baseDir, "data", "rbi.sqlite");
 
   const sessionTtlHours = readInt("SESSION_TTL_HOURS", env.SESSION_TTL_HOURS, 24, 1, 24 * 30);
-  const portRange = parsePortRange("WEBRTC_PORT_RANGE", env.WEBRTC_PORT_RANGE?.trim() || "52000-52099");
+  const portRange = parsePortRange("WEBRTC_PORT_RANGE", env.WEBRTC_PORT_RANGE?.trim() || "52000-52199");
   const iceFrontend = assertJsonArray("ICE_SERVERS_FRONTEND", env.ICE_SERVERS_FRONTEND?.trim() || "[]");
   const iceBackend = assertJsonArray("ICE_SERVERS_BACKEND", env.ICE_SERVERS_BACKEND?.trim() || "[]");
   const publicIp = env.PUBLIC_IP?.trim() || "127.0.0.1";

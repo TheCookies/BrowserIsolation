@@ -94,7 +94,16 @@ export function registerSessionRoutes(app: FastifyInstance, deps: AppDeps): void
       } catch (error) {
         const message = error instanceof Error ? error.message : "launch_failed";
         if (message === "webrtc_port_pool_exhausted") {
-          return reply.code(503).send({ error: message });
+          return reply.code(503).send({
+            error: message,
+            detail: "Every WebRTC port on this host is in use. Widen WEBRTC_PORT_RANGE or end unused sessions.",
+          });
+        }
+        if (message === "launch_in_progress") {
+          return reply.code(503).send({
+            error: message,
+            detail: "This account already has a browser starting. Wait for it to finish, then reconnect.",
+          });
         }
         if (message === "browser_disabled" || message === "invalid_browser") {
           return reply.code(400).send({ error: message });

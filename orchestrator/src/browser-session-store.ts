@@ -64,7 +64,29 @@ export type BrowserSessionStore = {
   deleteByOwner(username: string): BrowserSessionRecord | null;
   deleteBySubjectId(subjectId: string): BrowserSessionRecord | null;
   countByWorker(workerId: string): number;
+  /**
+   * Take a per-user launch slot before Docker starts. Different subjects each
+   * get a port; the same subject joins the launch already in progress.
+   */
+  reserveLaunch(input: {
+    subjectId: string;
+    workerId: string;
+    sessionId: string;
+    /** Local worker: pick a free WebRTC port. Omit for remote workers. */
+    portRange?: { start: number; end: number };
+  }): LaunchReservation;
+  getLaunchClaim(subjectId: string): { sessionId: string } | null;
+  commitLaunch(subjectId: string, record: BrowserSessionRecord): void;
+  releaseLaunch(subjectId: string): void;
+  clearLaunchClaims(): void;
 };
+
+export type LaunchReservation =
+  | { status: "session"; session: BrowserSessionRecord }
+  | { status: "busy"; sessionId: string }
+  | { status: "reserved"; sessionId: string; webrtcPort: number };
+
+const LAUNCH_CLAIM_TTL_MS = 3 * 60_000;
 
 export function createBrowserSessionStore(db: Database.Database): BrowserSessionStore {
   const insert = db.prepare(`
@@ -90,6 +112,77 @@ export function createBrowserSessionStore(db: Database.Database): BrowserSession
   const countWorker = db.prepare<[string], { n: number }>(
     `SELECT COUNT(*) AS n FROM browser_sessions WHERE worker_id = ?`,
   );
+  const claimBySubject = db.prepare<
+    [string],
+    { session_id: string; created_at: number }
+  >(`SELECT session_id, created_at FROM launch_claims WHERE subject_id = ?`);
+  const deleteExpiredClaims = db.prepare(`DELETE FROM launch_claims WHERE created_at < ?`);
+  const deleteClaim = db.prepare(`DELETE FROM launch_claims WHERE subject_id = ?`);
+  const deleteAllClaims = db.prepare(`DELETE FROM launch_claims`);
+  const insertClaim = db.prepare(
+    `INSERT INTO launch_claims (subject_id, session_id, webrtc_port, worker_id, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  );
+  const usedPorts = db.prepare<[string, string], { port: number }>(
+    `SELECT webrtc_port AS port FROM browser_sessions WHERE worker_id = ?
+     UNION
+     SELECT webrtc_port AS port FROM launch_claims WHERE worker_id = ? AND webrtc_port > 0`,
+  );
+
+  const reserveLaunchTx = db.transaction(
+    (input: {
+      subjectId: string;
+      workerId: string;
+      sessionId: string;
+      portRange?: { start: number; end: number };
+    }): LaunchReservation => {
+      const now = Date.now();
+      deleteExpiredClaims.run(now - LAUNCH_CLAIM_TTL_MS);
+
+      const existing = bySubject.get(input.subjectId);
+      if (existing) return { status: "session", session: mapRow(existing) };
+
+      const claim = claimBySubject.get(input.subjectId);
+      if (claim) return { status: "busy", sessionId: claim.session_id };
+
+      let port = 0;
+      if (input.portRange) {
+        const used = new Set(
+          usedPorts.all(input.workerId, input.workerId).map((row) => row.port),
+        );
+        let found = false;
+        for (let candidate = input.portRange.start; candidate <= input.portRange.end; candidate += 1) {
+          if (!used.has(candidate)) {
+            port = candidate;
+            found = true;
+            break;
+          }
+        }
+        if (!found) throw new Error("webrtc_port_pool_exhausted");
+      }
+
+      insertClaim.run(input.subjectId, input.sessionId, port, input.workerId, now);
+      return { status: "reserved", sessionId: input.sessionId, webrtcPort: port };
+    },
+  );
+
+  const commitLaunchTx = db.transaction((subjectId: string, record: BrowserSessionRecord) => {
+    deleteClaim.run(subjectId);
+    insert.run(
+      record.id,
+      record.ownerUsername,
+      record.ownerSubjectId,
+      record.browser,
+      record.containerId,
+      record.containerName,
+      record.nekoAdminPassword,
+      record.nekoUserPassword,
+      record.webrtcPort,
+      record.workerId,
+      record.createdAt,
+      record.lastActivityAt,
+    );
+  });
 
   return {
     insert(record) {
@@ -156,6 +249,27 @@ export function createBrowserSessionStore(db: Database.Database): BrowserSession
 
     countByWorker(workerId) {
       return countWorker.get(workerId)?.n ?? 0;
+    },
+
+    reserveLaunch(input) {
+      return reserveLaunchTx(input);
+    },
+
+    getLaunchClaim(subjectId) {
+      const claim = claimBySubject.get(subjectId);
+      return claim ? { sessionId: claim.session_id } : null;
+    },
+
+    commitLaunch(subjectId, record) {
+      commitLaunchTx(subjectId, record);
+    },
+
+    releaseLaunch(subjectId) {
+      deleteClaim.run(subjectId);
+    },
+
+    clearLaunchClaims() {
+      deleteAllClaims.run();
     },
   };
 }

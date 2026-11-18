@@ -21,7 +21,7 @@ CONFIG_DIR="/etc/browser-isolation"
 ENV_FILE="${CONFIG_DIR}/.env"
 AUTH_FILE="${AUTH_FILE:-/etc/containers/auth.json}"
 WORKER_PORT_DEFAULT=8090
-WEBRTC_PORT_RANGE_DEFAULT="52000-52099"
+WEBRTC_PORT_RANGE_DEFAULT="52000-52199"
 REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/TheCookies/BrowserIsolation/main}"
 HOST_STATE="${HOST_STATE:-/var/lib/browser-isolation}"
 
