@@ -77,17 +77,22 @@ function notableContainerLogs(logs: string): string {
     .map((line) => line.trim())
     .filter(Boolean);
   const notable = lines.filter((line) =>
-    /http listening|neko ready|address already in use|failed to bind|bind:|\bFATA\b|\bFTL\b|panic|out of memory|cannot allocate memory|oom-kill/i.test(
+    /http listening|neko ready|address already in use|failed to bind|bind:|\bFATA\b|\bFTL\b|panic|unable to connect to input driver|unable to open display|out of memory|cannot allocate memory|oom-kill/i.test(
       line,
     ),
   );
-  return (notable.length > 0 ? notable : lines).slice(-6).join(" | ").slice(-900);
+  return (notable.length > 0 ? notable : lines).slice(-8).join(" | ").slice(-1200);
 }
 
 function readinessFailure(readyUrl: string, error: unknown, logs: string): Error {
   const reason = error instanceof Error ? error.message : String(error);
   const tail = notableContainerLogs(logs);
-  return new Error(tail ? `${reason} | ${tail}` : reason);
+  let message = tail ? `${reason} | ${tail}` : reason;
+  if (/unable to connect to input driver|unable to open display/i.test(message)) {
+    message +=
+      " | hint: Xorg/input failed inside the browser container (DISPLAY conflict under host networking, or X never started — see container log tail above)";
+  }
+  return new Error(message);
 }
 
 function isPortBindFailure(message: string): boolean {

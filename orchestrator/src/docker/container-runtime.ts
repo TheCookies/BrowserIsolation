@@ -17,6 +17,7 @@ import { policyArchiveFromFile } from "./policy-tar";
 import { clearProfileLockFiles, PROFILE_LOCK_BASENAMES } from "./profile-locks";
 import { ensureWritableProfileHostDir } from "./profile-permissions";
 import { profileContainerPath, profileHostDir, profileHostDirFromVolumeName } from "./profile-paths";
+import { sanitizeResourceId, xDisplayForWebrtcPort } from "./session-resources";
 
 export type ImagePullResult = {
   image: string;
@@ -337,11 +338,15 @@ function nekoEnv(
   view: RuntimeView,
   input: CreateBrowserContainerInput,
   httpPort: number,
+  xDisplay: string,
 ): string[] {
   // Neko serves at /. The orchestrator strips /session/:id/view when proxying.
   // Avoid NEKO_SERVER_PATH_PREFIX — legacy /ws auth breaks under a path prefix on 3.1.x.
   const clipboardProfile = memberProfileJson(view.allowClipboard);
   return [
+    // Unique DISPLAY under host networking: supervisord starts Xorg with
+    // `X %(ENV_DISPLAY)s` and passes the same value to neko/Firefox.
+    `DISPLAY=${xDisplay}`,
     `NEKO_SERVER_BIND=0.0.0.0:${httpPort}`,
     "NEKO_SERVER_PROXY=true",
     "NEKO_SERVER_PATH_PREFIX=/",
@@ -725,12 +730,15 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
       const launchConfig: Config = { ...config, ...view };
       const name = containerNameFor(input.sessionId);
       const subjectKey = profileStorageKey(input.subjectId);
+      const xDisplay = xDisplayForWebrtcPort(input.webrtcPort);
       const labels = managedLabels({
-        owner: input.owner,
+        // Label only — DB/UI keep the real display username.
+        owner: sanitizeResourceId(input.owner),
         subjectKey,
         sessionId: input.sessionId,
         browser: input.browser,
         webrtcPort: input.webrtcPort,
+        xDisplay,
       });
       const port = String(input.webrtcPort);
       // Host mode: HTTP cannot stay on 8080 (orchestrator uses it). Offset WebRTC port.
@@ -786,7 +794,7 @@ export function createDockerRuntime(config: Config): ContainerRuntime {
       const container = await docker.createContainer({
         name,
         Image: imageForBrowser(launchConfig, input.browser),
-        Env: nekoEnv(view, input, httpPort),
+        Env: nekoEnv(view, input, httpPort, xDisplay),
         Labels: labels,
         ...(useHostNet
           ? {}

@@ -4,6 +4,7 @@ export const LABEL_SUBJECT_KEY = "rbi.subject_key";
 export const LABEL_SESSION = "rbi.session";
 export const LABEL_BROWSER = "rbi.browser";
 export const LABEL_WEBRTC_PORT = "rbi.webrtc_port";
+export const LABEL_X_DISPLAY = "rbi.x_display";
 
 export function managedLabels(input: {
   owner: string;
@@ -12,6 +13,8 @@ export function managedLabels(input: {
   sessionId: string;
   browser: string;
   webrtcPort?: number;
+  /** X display string, e.g. ":1234" — unique per host-network session. */
+  xDisplay?: string;
 }): Record<string, string> {
   const labels: Record<string, string> = {
     [LABEL_MANAGED]: "true",
@@ -24,6 +27,9 @@ export function managedLabels(input: {
   }
   if (input.webrtcPort !== undefined) {
     labels[LABEL_WEBRTC_PORT] = String(input.webrtcPort);
+  }
+  if (input.xDisplay) {
+    labels[LABEL_X_DISPLAY] = input.xDisplay;
   }
   return labels;
 }
