@@ -202,61 +202,6 @@ export function resolveLdapGroups(entry: LdapUserEntry, groupsAttr: string): str
   return asStringList(entry.attributes[key]);
 }
 
-<<<<<<< HEAD
-function asObjectGuidBuffer(
-  value: Buffer | Buffer[] | string | string[] | Uint8Array | undefined,
-): Buffer | null {
-  const raw = Array.isArray(value) ? value[0] : value;
-  if (!raw) return null;
-  // Copy immediately. ldapts may reuse the underlying bytes across searches.
-  if (Buffer.isBuffer(raw) && raw.length === 16) return Buffer.from(raw);
-  if (raw instanceof Uint8Array && raw.length === 16) return Buffer.from(raw);
-  return null;
-}
-
-/** True when a parsed GUID cannot distinguish directory users. */
-function isUselessGuid(guid: string): boolean {
-  const hex = guid.replace(/-/g, "").toLowerCase();
-  if (!/^[0-9a-f]{32}$/.test(hex)) return true;
-  return /^0+$/.test(hex) || /^(.)\1+$/.test(hex);
-}
-
-function readEntryDn(entry: LdapUserEntry): string {
-  const direct = typeof entry.dn === "string" ? entry.dn.trim() : String(entry.dn ?? "").trim();
-  if (direct && direct !== "[object Object]") return direct;
-  const key = Object.keys(entry.attributes).find((name) => name.toLowerCase() === "distinguishedname");
-  return (key ? asStringList(entry.attributes[key])[0] : "")?.trim() ?? "";
-}
-
-export function resolveLdapSubjectId(entry: LdapUserEntry): string {
-  const dn = readEntryDn(entry);
-  const guidKey = Object.keys(entry.attributes).find(
-    (name) => name.toLowerCase() === "objectguid",
-  );
-  if (guidKey) {
-    const raw = entry.attributes[guidKey];
-    const buf = asObjectGuidBuffer(raw as Buffer | Buffer[] | string | string[] | undefined);
-    if (buf) {
-      const guid = formatObjectGuid(buf);
-      // A shared or empty GUID would put every LDAP user on one browser.
-      if (!isUselessGuid(guid)) return ldapSubjectId(guid);
-    }
-    const single = Array.isArray(raw) ? raw[0] : raw;
-    if (typeof single === "string" && single.trim()) {
-      const trimmed = single.trim();
-      if (
-        /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
-          trimmed,
-        ) &&
-        !isUselessGuid(trimmed)
-      ) {
-        return ldapSubjectId(trimmed.toLowerCase());
-      }
-    }
-  }
-  if (!dn) throw new Error("LDAP entry has no DN or objectGUID.");
-  return ldapSubjectId(dn);
-=======
 const NIL_GUID = "00000000-0000-0000-0000-000000000000";
 const DASHED_GUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
@@ -372,7 +317,6 @@ export function resolveLdapSubjectId(entry: LdapUserEntry): string {
   if (token) return ldapSubjectId(token);
   if (dn) return ldapSubjectId(dn);
   throw new Error("LDAP entry has no objectGUID, objectSid, entryUUID, or DN.");
->>>>>>> ef870ea69b70db550f60621a59b7ee50ec1a3b2e
 }
 
 export function entryToUser(

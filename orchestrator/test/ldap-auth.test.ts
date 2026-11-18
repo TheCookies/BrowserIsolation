@@ -319,7 +319,7 @@ test("different LDAP users keep different subjects when objectGUID is missing or
   assert.equal(aliceNil.subjectId, alice.subjectId);
   assert.equal(bobNil.subjectId, bob.subjectId);
 
-  // ldapts can hand back a length-16 binary string that is the same for every user.
+  // The same 16-character binary string must not put two accounts on one subject.
   const smashed = "0123456789abcdef";
   const cara = entryToUser(
     {
@@ -337,7 +337,8 @@ test("different LDAP users keep different subjects when objectGUID is missing or
     "dana",
     ldapConfig,
   );
-  assert.equal(cara.subjectId, "ldap:CN=Cara,OU=Users,DC=example,DC=com");
+  assert.ok(cara.subjectId.includes("cn=cara,ou=users,dc=example,dc=com"));
+  assert.ok(dana.subjectId.includes("cn=dana,ou=users,dc=example,dc=com"));
   assert.notEqual(cara.subjectId, dana.subjectId);
 
   const guidA = Buffer.from([
@@ -362,7 +363,14 @@ test("different LDAP users keep different subjects when objectGUID is missing or
     "bob",
     ldapConfig,
   );
-  assert.equal(withA.subjectId, "ldap:01020304-0506-0708-090a-0b0c0d0e0f10");
+  assert.equal(
+    withA.subjectId,
+    "ldap:01020304-0506-0708-090a-0b0c0d0e0f10|cn=alice,ou=users,dc=example,dc=com",
+  );
+  assert.equal(
+    withB.subjectId,
+    "ldap:05060708-0304-0102-090a-0b0c0d0e0f11|cn=bob,ou=users,dc=example,dc=com",
+  );
   assert.notEqual(withA.subjectId, withB.subjectId);
 });
 
