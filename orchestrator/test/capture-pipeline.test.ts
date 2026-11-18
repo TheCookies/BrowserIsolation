@@ -31,6 +31,8 @@ test("vp8 capture env hardcodes show-pointer=false for main and legacy", () => {
   assert.ok(!pipelines.main.gst_pipeline.includes("show-pointer=true"));
   assert.ok(!pipelines.legacy.gst_pipeline.includes("show-pointer=true"));
   assert.ok(pipelines.main.gst_pipeline.includes("vp8enc"));
+  assert.ok(pipelines.main.gst_pipeline.includes("leaky=downstream"));
+  assert.ok(pipelines.main.gst_pipeline.includes("max-size-buffers=2"));
 });
 
 test("h264 capture env hardcodes show-pointer=false for main and legacy", () => {
@@ -47,6 +49,7 @@ test("h264 capture env hardcodes show-pointer=false for main and legacy", () => 
   assert.ok(pipelines.main?.gst_pipeline.includes("show-pointer=false"));
   assert.ok(pipelines.legacy?.gst_pipeline.includes("show-pointer=false"));
   assert.ok(pipelines.main.gst_pipeline.includes("x264enc"));
+  assert.ok(pipelines.main.gst_pipeline.includes("leaky=downstream"));
 });
 
 test("audio capture records the pulse sink the browser plays into", () => {

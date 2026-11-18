@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  cssCursorValue,
   isDrawableCursor,
   parseRemoteCursorFrame,
   placeCursorSprite,
@@ -76,4 +77,15 @@ test("placeCursorSprite is 1:1 when the stage matches the remote screen", () => 
     hotspotY: 2,
   });
   assert.deepEqual(placed, { left: 39, top: 48, width: 24, height: 24 });
+});
+
+test("cssCursorValue uses a native CSS cursor with a clamped hotspot", () => {
+  assert.equal(cssCursorValue(null, null), "default");
+  const blank = { width: 1, height: 1, hotspotX: 0, hotspotY: 0, png: new Uint8Array([0]) };
+  assert.equal(cssCursorValue(blank, "blob:x"), "none");
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const image = { width: 16, height: 20, hotspotX: 3, hotspotY: 5, png };
+  assert.equal(cssCursorValue(image, "blob:cursor"), 'url("blob:cursor") 3 5, default');
+  const clipped = { width: 8, height: 8, hotspotX: 99, hotspotY: -2, png };
+  assert.equal(cssCursorValue(clipped, "blob:y"), 'url("blob:y") 7 0, default');
 });

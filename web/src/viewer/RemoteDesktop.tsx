@@ -4,8 +4,8 @@ import { LaunchStatusOverlay } from "../LaunchStatusOverlay";
 import { ViewerClient, type ViewerStatus } from "./client";
 import { EVENT } from "./events";
 import {
+  cssCursorValue,
   isDrawableCursor,
-  placeCursorSprite,
   type RemoteCursorImage,
 } from "./cursor";
 import {
@@ -100,11 +100,8 @@ export function RemoteDesktop({
 }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const cursorRef = useRef<HTMLImageElement>(null);
   const cursorImageRef = useRef<RemoteCursorImage | null>(null);
   const cursorUrlRef = useRef<string | null>(null);
-  const pointerRef = useRef<{ x: number; y: number } | null>(null);
-  const placeRemoteCursorRef = useRef<(pointer: { x: number; y: number } | null) => void>(() => {});
   const showRemoteCursorRef = useRef<(image: RemoteCursorImage) => void>(() => {});
   const stageWidthRef = useRef(stageWidth);
   const stageHeightRef = useRef(stageHeight);
@@ -124,6 +121,8 @@ export function RemoteDesktop({
   const reconnectTimerRef = useRef<number | undefined>(undefined);
   const screenTimerRef = useRef<number | undefined>(undefined);
   const wheelThrottleRef = useRef(false);
+  const pendingMouseRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const mouseRafRef = useRef<number | undefined>(undefined);
   const lastClipboardRef = useRef("");
   const allowClipboard = access.allowClipboard;
 
@@ -132,7 +131,6 @@ export function RemoteDesktop({
   const [needsAudioGesture, setNeedsAudioGesture] = useState(false);
   const [streamReady, setStreamReady] = useState(false);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
-  const [remoteCursorActive, setRemoteCursorActive] = useState(false);
 
   const publishStreamReady = useCallback(
     (ready: boolean) => {
@@ -171,7 +169,6 @@ export function RemoteDesktop({
       overlay.style.width = `${offsetWidth}px`;
       overlay.style.height = `${offsetHeight}px`;
     }
-    placeRemoteCursorRef.current(pointerRef.current);
   }, []);
 
   const applyScreenSize = useCallback(() => {
@@ -233,9 +230,16 @@ export function RemoteDesktop({
     client.sendData("mousemove", point);
   }
 
-  function hideRemoteCursor() {
-    const cursor = cursorRef.current;
-    if (cursor) cursor.style.display = "none";
+  /** Coalesce moves to one sample per animation frame so the datachannel stays current. */
+  function queueMouseMove(clientX: number, clientY: number) {
+    pendingMouseRef.current = { clientX, clientY };
+    if (mouseRafRef.current !== undefined) return;
+    mouseRafRef.current = window.requestAnimationFrame(() => {
+      mouseRafRef.current = undefined;
+      const pending = pendingMouseRef.current;
+      pendingMouseRef.current = null;
+      if (pending) sendMousePos(pending.clientX, pending.clientY);
+    });
   }
 
   function releaseCursorUrl() {
@@ -244,79 +248,28 @@ export function RemoteDesktop({
     cursorUrlRef.current = null;
   }
 
-  /** Draw the remote cursor so its hotspot is the pointer inside the stage. */
-  function placeRemoteCursor(pointer: { x: number; y: number } | null) {
-    const cursor = cursorRef.current;
-    const stage = stageRef.current;
-    const image = cursorImageRef.current;
-    if (!cursor || !stage || !image || !isDrawableCursor(image) || !pointer) {
-      hideRemoteCursor();
-      return;
-    }
-    const rect = stage.getBoundingClientRect();
-    const screen = resolutionRef.current;
-    const placed = placeCursorSprite({
-      pointerX: pointer.x,
-      pointerY: pointer.y,
-      boxWidth: rect.width,
-      boxHeight: rect.height,
-      screenWidth: screen?.width || rect.width,
-      screenHeight: screen?.height || rect.height,
-      imageWidth: image.width,
-      imageHeight: image.height,
-      hotspotX: image.hotspotX,
-      hotspotY: image.hotspotY,
-    });
-    if (!placed) {
-      hideRemoteCursor();
-      return;
-    }
-    cursor.style.display = "block";
-    cursor.style.left = `${placed.left}px`;
-    cursor.style.top = `${placed.top}px`;
-    cursor.style.width = `${placed.width}px`;
-    cursor.style.height = `${placed.height}px`;
-  }
-
-  function trackPointer(clientX: number, clientY: number) {
-    const stage = stageRef.current;
-    if (!stage) return;
-    const rect = stage.getBoundingClientRect();
-    const pointer = { x: clientX - rect.left, y: clientY - rect.top };
-    pointerRef.current = pointer;
-    const image = cursorImageRef.current;
-    if (image && isDrawableCursor(image)) setRemoteCursorActive(true);
-    placeRemoteCursor(pointer);
+  function applyOverlayCursor(image: RemoteCursorImage | null, objectUrl: string | null) {
+    const overlay = overlayRef.current;
+    if (!overlay) return;
+    overlay.style.cursor = cssCursorValue(image, objectUrl);
   }
 
   function showRemoteCursor(image: RemoteCursorImage) {
     cursorImageRef.current = image;
-    const cursor = cursorRef.current;
-    if (!cursor || !isDrawableCursor(image)) {
+    if (!isDrawableCursor(image)) {
       releaseCursorUrl();
-      if (cursor) cursor.removeAttribute("src");
-      hideRemoteCursor();
-      // Remote browser hid its pointer (blank cursor). Don't keep the local arrow.
-      setRemoteCursorActive(true);
+      // Blank remote cursor (e.g. while dragging) — hide the OS pointer too.
+      applyOverlayCursor(image, null);
       return;
     }
     const copy = new Uint8Array(image.png);
     const url = URL.createObjectURL(new Blob([copy.buffer as ArrayBuffer], { type: "image/png" }));
     const previous = cursorUrlRef.current;
     cursorUrlRef.current = url;
-    cursor.src = url;
+    applyOverlayCursor(image, url);
     if (previous) URL.revokeObjectURL(previous);
-    if (pointerRef.current) {
-      setRemoteCursorActive(true);
-      placeRemoteCursor(pointerRef.current);
-      return;
-    }
-    // Keep the OS cursor until the pointer is over the stage and the sprite can replace it.
-    setRemoteCursorActive(false);
-    hideRemoteCursor();
   }
 
-  placeRemoteCursorRef.current = placeRemoteCursor;
   showRemoteCursorRef.current = showRemoteCursor;
 
   function onWheel(event: WheelEvent) {
@@ -325,7 +278,6 @@ export function RemoteDesktop({
     if (!streamReady || !clientRef.current) return;
 
     const { x, y } = normalizeWheelDelta(event.deltaX, event.deltaY, event.deltaMode);
-    trackPointer(event.clientX, event.clientY);
     sendMousePos(event.clientX, event.clientY);
 
     if (wheelThrottleRef.current) return;
@@ -340,10 +292,8 @@ export function RemoteDesktop({
     let cancelled = false;
     closedRef.current = false;
     cursorImageRef.current = null;
-    pointerRef.current = null;
     releaseCursorUrl();
-    hideRemoteCursor();
-    setRemoteCursorActive(false);
+    applyOverlayCursor(null, null);
     if (!videoRef.current || !audioRef.current) return;
     const videoEl: HTMLVideoElement = videoRef.current;
     const audioEl: HTMLAudioElement = audioRef.current;
@@ -526,9 +476,14 @@ export function RemoteDesktop({
       if (clientRefOut) clientRefOut.current = null;
       resetMedia();
       audioUnlockedRef.current = false;
+      if (mouseRafRef.current !== undefined) {
+        window.cancelAnimationFrame(mouseRafRef.current);
+        mouseRafRef.current = undefined;
+      }
+      pendingMouseRef.current = null;
       releaseCursorUrl();
       cursorImageRef.current = null;
-      hideRemoteCursor();
+      applyOverlayCursor(null, null);
       publishStreamReady(false);
     };
   }, [
@@ -616,20 +571,9 @@ export function RemoteDesktop({
   return (
     <div ref={stageRef} className="remote-desktop">
       <video ref={videoRef} className="remote-video" autoPlay playsInline />
-      <img
-        ref={cursorRef}
-        className="remote-cursor"
-        alt=""
-        aria-hidden="true"
-        draggable={false}
-        onError={() => {
-          hideRemoteCursor();
-          setRemoteCursorActive(false);
-        }}
-      />
       <textarea
         ref={overlayRef}
-        className={remoteCursorActive ? "remote-overlay has-remote-cursor" : "remote-overlay"}
+        className="remote-overlay"
         autoComplete="off"
         autoCorrect="off"
         autoCapitalize="off"
@@ -638,20 +582,23 @@ export function RemoteDesktop({
         onContextMenu={(event) => event.preventDefault()}
         onMouseMove={(event) => {
           event.preventDefault();
-          trackPointer(event.clientX, event.clientY);
-          sendMousePos(event.clientX, event.clientY);
+          queueMouseMove(event.clientX, event.clientY);
         }}
         onMouseDown={(event) => {
           event.preventDefault();
           overlayRef.current?.focus();
           void unlockAudio();
-          trackPointer(event.clientX, event.clientY);
+          // Flush pending move so the click lands where the user aimed.
+          if (mouseRafRef.current !== undefined) {
+            window.cancelAnimationFrame(mouseRafRef.current);
+            mouseRafRef.current = undefined;
+          }
+          pendingMouseRef.current = null;
           sendMousePos(event.clientX, event.clientY);
           clientRef.current?.sendData("mousedown", { key: event.button + 1 });
         }}
         onMouseUp={(event) => {
           event.preventDefault();
-          trackPointer(event.clientX, event.clientY);
           sendMousePos(event.clientX, event.clientY);
           clientRef.current?.sendData("mouseup", { key: event.button + 1 });
         }}
@@ -663,8 +610,7 @@ export function RemoteDesktop({
           }
         }}
         onMouseLeave={() => {
-          pointerRef.current = null;
-          hideRemoteCursor();
+          pendingMouseRef.current = null;
           keyboardRef.current?.reset();
         }}
         onPaste={(event) => {

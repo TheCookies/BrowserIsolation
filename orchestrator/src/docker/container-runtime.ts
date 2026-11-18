@@ -294,10 +294,13 @@ export function buildNekoCapturePipelineEnv(
 ): string[] {
   // VP8 is the reliable default for browser WebRTC. Software H.264 often negotiates
   // but decodes as a black frame unless profile/packetization match the client.
+  // Leaky queue: an unbounded queue lets the encoder fall behind and the
+  // desktop under the cursor lags, which feels like a sticky mouse.
+  const lowLatencyQueue = "queue max-size-buffers=2 max-size-time=0 max-size-bytes=0 leaky=downstream";
   const pipeline =
     config.captureVideoCodec === "h264"
       ? "ximagesrc display-name={display} show-pointer=false use-damage=false " +
-        "! videoconvert ! queue " +
+        `! videoconvert ! ${lowLatencyQueue} ` +
         "! video/x-raw,format=I420 " +
         "! x264enc name=encoder threads=2 bitrate=3500 key-int-max=30 " +
         "byte-stream=true tune=zerolatency speed-preset=ultrafast " +
@@ -306,7 +309,7 @@ export function buildNekoCapturePipelineEnv(
       : // Tuned for 720p baseline with low-latency software encode; client may screen/set up to 1080p.
         "ximagesrc display-name={display} show-pointer=false use-damage=false " +
         "! video/x-raw,framerate=30/1 " +
-        "! videoconvert ! queue " +
+        `! videoconvert ! ${lowLatencyQueue} ` +
         "! vp8enc name=encoder target-bitrate=1996800 cpu-used=6 end-usage=cbr " +
         "threads=2 deadline=1 undershoot=95 buffer-size=12288 buffer-initial-size=6144 " +
         "buffer-optimal-size=9216 keyframe-max-dist=30 min-quantizer=4 max-quantizer=36 " +

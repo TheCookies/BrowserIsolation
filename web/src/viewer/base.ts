@@ -151,10 +151,18 @@ export abstract class BaseClient extends EventEmitter {
     this._id = "";
   }
 
+  /** Drop intermediate moves when the datachannel is backed up (keeps the pointer snappy). */
+  private static readonly MOVE_BUFFER_LIMIT = 64 * 1024;
+
   public sendData(event: "wheel" | "mousemove", data: { x: number; y: number }): void;
   public sendData(event: "mousedown" | "mouseup" | "keydown" | "keyup", data: { key: number }): void;
   public sendData(event: string, data: { x?: number; y?: number; key?: number }) {
     if (!this.connected || !this._channel) {
+      return;
+    }
+    // Flooding MOVE while the channel is congested queues seconds of stale
+    // positions; the remote mouse then trails the OS pointer.
+    if (event === "mousemove" && this._channel.bufferedAmount > BaseClient.MOVE_BUFFER_LIMIT) {
       return;
     }
 

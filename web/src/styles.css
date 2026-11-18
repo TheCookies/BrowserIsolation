@@ -2187,28 +2187,12 @@ td.empty {
   touch-action: none;
   opacity: 0;
   caret-color: transparent;
-  /* OS arrow until the remote cursor bitmap is ready; then the sprite replaces it. */
+  /* Default until a remote cursor bitmap arrives; then JS sets cursor: url(...). */
   cursor: default;
   z-index: 1;
   color: transparent;
   background: transparent;
   box-sizing: border-box;
-}
-
-.remote-overlay.has-remote-cursor {
-  cursor: none;
-}
-
-/* Remote browser cursor (hotspot placed in JS). Above the video, under the status overlay. */
-.remote-cursor {
-  position: absolute;
-  z-index: 2;
-  display: none;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  pointer-events: none;
-  user-select: none;
 }
 
 .remote-status {

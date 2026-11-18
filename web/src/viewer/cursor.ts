@@ -6,10 +6,9 @@
  *   OP_CURSOR_IMAGE    0x02 — header + uint16 width, height, xhot, yhot + PNG
  * The 3-byte header is opcode + uint16 length. Image bytes start at offset 11.
  *
- * The host does not receive position updates. The sprite is drawn at the local
- * pointer, shifted by the cursor hotspot, in CSS pixels. CSS `cursor: url()`
- * puts that hotspot in the wrong place when devicePixelRatio is not 1, which
- * is why the arrow and the remote browser cursor diverge for some users.
+ * Prefer CSS `cursor: url(…) x y` (compositor-native) over a JS-positioned
+ * `<img>` sprite. The sprite always feels floaty; the OS cursor does not.
+ * Hotspot is clamped to the image bounds so browsers accept the declaration.
  */
 
 export type RemoteCursorImage = {
@@ -73,6 +72,7 @@ export type CursorSpritePlacement = {
  * Place the cursor bitmap so its hotspot sits on the pointer.
  * `pointerX`/`pointerY` and the box are CSS pixels of the stage.
  * The bitmap and hotspot are remote-screen pixels, scaled to that box.
+ * Kept for tests / fallback; the live viewer uses {@link cssCursorValue}.
  */
 export function placeCursorSprite(input: {
   pointerX: number;
@@ -96,4 +96,15 @@ export function placeCursorSprite(input: {
     width: input.imageWidth * scaleX,
     height: input.imageHeight * scaleY,
   };
+}
+
+/** CSS `cursor` value for a remote bitmap, or `none` / `default`. */
+export function cssCursorValue(image: RemoteCursorImage | null, objectUrl: string | null): string {
+  if (!image) return "default";
+  if (!isDrawableCursor(image) || !objectUrl) return "none";
+  const maxX = Math.max(0, image.width - 1);
+  const maxY = Math.max(0, image.height - 1);
+  const hotX = Math.min(Math.max(0, Math.round(image.hotspotX)), maxX);
+  const hotY = Math.min(Math.max(0, Math.round(image.hotspotY)), maxY);
+  return `url("${objectUrl}") ${hotX} ${hotY}, default`;
 }
