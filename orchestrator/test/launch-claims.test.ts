@@ -159,3 +159,24 @@ test("expired claims and a startup clear free their ports", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a port held by a live container is not handed out again", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rbi-claims-live-"));
+  const db = openDatabase(path.join(dir, "rbi.sqlite"));
+  try {
+    const store = createBrowserSessionStore(db);
+    const reserved = store.reserveLaunch({
+      subjectId: "ldap:next",
+      workerId: "local",
+      sessionId: "session-next",
+      portRange: range,
+      usedPorts: [52000],
+    });
+    assert.equal(reserved.status, "reserved");
+    if (reserved.status !== "reserved") return;
+    assert.equal(reserved.webrtcPort, 52001);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

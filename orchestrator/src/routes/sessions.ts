@@ -99,6 +99,12 @@ export function registerSessionRoutes(app: FastifyInstance, deps: AppDeps): void
             detail: "Every WebRTC port on this host is in use. Widen WEBRTC_PORT_RANGE or end unused sessions.",
           });
         }
+        if (message === "browser_out_of_memory" || message.startsWith("browser_out_of_memory")) {
+          return reply.code(503).send({
+            error: "browser_out_of_memory",
+            detail: message.replace(/^browser_out_of_memory:\s*/, ""),
+          });
+        }
         if (message === "launch_in_progress") {
           return reply.code(503).send({
             error: message,
@@ -129,7 +135,7 @@ export function registerSessionRoutes(app: FastifyInstance, deps: AppDeps): void
         request.log.error({ err: error }, "browser launch failed");
         return reply.code(500).send({
           error: "launch_failed",
-          detail: message.slice(0, 500),
+          detail: message.slice(0, 1500),
         });
       }
     },

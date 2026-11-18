@@ -1,4 +1,5 @@
 import type { AuthenticatedUser } from "./auth/provider";
+import { LABEL_WEBRTC_PORT } from "./docker/labels";
 import { canAccessBrowserSession } from "./access";
 import type { BrowserSessionRecord, BrowserSessionStore } from "./browser-session-store";
 import type { BrowserType, Config } from "./config";
@@ -67,6 +68,35 @@ function parseIceServers(raw: string): IceServerConfig[] {
 
 const PROXY_TARGET_TTL_MS = 10_000;
 const LAUNCH_WAIT_MS = 120_000;
+
+function notableContainerLogs(logs: string): string {
+  const lines = logs
+    .replace(/\u001b\[[0-9;]*m/g, "")
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const notable = lines.filter((line) =>
+    /http listening|neko ready|address already in use|failed to bind|bind:|\bFATA\b|\bFTL\b|panic|out of memory|cannot allocate memory|oom-kill/i.test(
+      line,
+    ),
+  );
+  return (notable.length > 0 ? notable : lines).slice(-6).join(" | ").slice(-900);
+}
+
+function readinessFailure(readyUrl: string, error: unknown, logs: string): Error {
+  const reason = error instanceof Error ? error.message : String(error);
+  const tail = notableContainerLogs(logs);
+  return new Error(tail ? `${reason} | ${tail}` : reason);
+}
+
+function isPortBindFailure(message: string): boolean {
+  return /address already in use|failed to bind|bind:/i.test(message);
+}
+
+function isOutOfMemory(message: string): boolean {
+  return /out of memory|cannot allocate memory|oom-kill/i.test(message);
+}
 
 /** Worker is down or rejected the token — stop sending it new launches. */
 function isSqliteConstraint(error: unknown): boolean {
@@ -172,6 +202,30 @@ export function createBrowserSessionService(deps: {
     return byName;
   }
 
+  async function waitUntilBrowserReady(
+    workerId: string,
+    containerId: string,
+    readyUrl: string,
+  ): Promise<void> {
+    const deadline = Date.now() + LAUNCH_WAIT_MS;
+    let lastError: unknown;
+    while (Date.now() < deadline) {
+      try {
+        await neko.waitUntilReady(readyUrl, 2_000);
+        return;
+      } catch (error) {
+        lastError = error;
+      }
+      const info = await placement.inspect(workerId, containerId).catch(() => null);
+      const logs = await placement.logs(workerId, containerId, 60).catch(() => "");
+      if ((info && !info.running) || isPortBindFailure(logs) || isOutOfMemory(logs)) {
+        throw readinessFailure(readyUrl, lastError, logs);
+      }
+    }
+    const logs = await placement.logs(workerId, containerId, 60).catch(() => "");
+    throw readinessFailure(readyUrl, lastError, logs);
+  }
+
   async function waitForOwnLaunch(
     subjectId: string,
     sessionId: string,
@@ -211,6 +265,8 @@ export function createBrowserSessionService(deps: {
     const persistProfile =
       config.persistProfilesEnabled && preferences.get(user.subjectId).persistProfile;
     const excluded = new Set<string>();
+    const burnedPorts = new Set<number>();
+    let portAttempts = 0;
     let lastError: unknown;
 
     for (;;) {
@@ -257,6 +313,15 @@ export function createBrowserSessionService(deps: {
 
       // Claim this user before any Docker work. Other LDAP users claim their own
       // ports in parallel; a second click from the same person waits.
+      let occupied: number[] = [];
+      if (worker.kind === "local") {
+        const running = await placement.listManagedOn(worker.id).catch(() => []);
+        occupied = running.flatMap((info) => {
+          if (!info.running) return [];
+          const port = Number(info.labels[LABEL_WEBRTC_PORT] ?? "");
+          return Number.isInteger(port) && port > 0 ? [port] : [];
+        });
+      }
       const reserved = store.reserveLaunch({
         subjectId: user.subjectId,
         workerId: worker.id,
@@ -265,6 +330,7 @@ export function createBrowserSessionService(deps: {
           worker.kind === "local"
             ? { start: config.webrtcPortStart, end: config.webrtcPortEnd }
             : undefined,
+        usedPorts: [...occupied, ...burnedPorts],
       });
       if (reserved.status === "session") {
         try {
@@ -308,13 +374,11 @@ export function createBrowserSessionService(deps: {
             (created.ipAddress ? `http://${created.ipAddress}:8080` : null);
           if (!readyUrl) throw new Error("container_missing_host");
           try {
-            await neko.waitUntilReady(readyUrl);
+            await waitUntilBrowserReady(worker.id, created.containerId, readyUrl);
           } catch (readyError) {
-            const logs = await placement.logs(worker.id, created.containerId).catch(() => "");
-            const detail = readyError instanceof Error ? readyError.message : String(readyError);
             await placement.remove(worker.id, created.containerId).catch(() => undefined);
             createdContainerId = null;
-            throw new Error(logs ? `${detail} | logs: ${logs}` : detail);
+            throw readyError;
           }
         }
 
@@ -346,6 +410,27 @@ export function createBrowserSessionService(deps: {
           throw error;
         }
         syncLocalActiveCounts();
+        const failureText = error instanceof Error ? error.message : String(error);
+        // The port was free in the database but something on the host still owns it.
+        // Skip it and try the next one instead of failing the only worker.
+        if (
+          worker.kind === "local" &&
+          reserved.status === "reserved" &&
+          portAttempts < 4 &&
+          isPortBindFailure(failureText)
+        ) {
+          burnedPorts.add(reserved.webrtcPort);
+          portAttempts += 1;
+          continue;
+        }
+        if (isOutOfMemory(failureText)) {
+          throw Object.assign(
+            new Error(
+              "browser_out_of_memory: this host ran out of memory starting the browser. Lower BROWSER_MEMORY and BROWSER_SHM_SIZE.",
+            ),
+            { statusCode: 503 },
+          );
+        }
         // A unique-key failure is not a bad worker. Retrying it starts another
         // container and the request never returns.
         if (isSqliteConstraint(error)) {

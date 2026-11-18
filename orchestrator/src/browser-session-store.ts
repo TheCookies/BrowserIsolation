@@ -74,6 +74,8 @@ export type BrowserSessionStore = {
     sessionId: string;
     /** Local worker: pick a free WebRTC port. Omit for remote workers. */
     portRange?: { start: number; end: number };
+    /** Ports held outside this table (live containers, or a bind that just failed). */
+    usedPorts?: number[];
   }): LaunchReservation;
   getLaunchClaim(subjectId: string): { sessionId: string } | null;
   commitLaunch(subjectId: string, record: BrowserSessionRecord): void;
@@ -135,6 +137,7 @@ export function createBrowserSessionStore(db: Database.Database): BrowserSession
       workerId: string;
       sessionId: string;
       portRange?: { start: number; end: number };
+      usedPorts?: number[];
     }): LaunchReservation => {
       const now = Date.now();
       deleteExpiredClaims.run(now - LAUNCH_CLAIM_TTL_MS);
@@ -150,6 +153,7 @@ export function createBrowserSessionStore(db: Database.Database): BrowserSession
         const used = new Set(
           usedPorts.all(input.workerId, input.workerId).map((row) => row.port),
         );
+        for (const port of input.usedPorts ?? []) used.add(port);
         let found = false;
         for (let candidate = input.portRange.start; candidate <= input.portRange.end; candidate += 1) {
           if (!used.has(candidate)) {
